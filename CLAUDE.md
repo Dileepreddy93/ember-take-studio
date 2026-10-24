@@ -26,18 +26,23 @@ REN [surprised, point]: Wait. Who sent an email to the entire company?
 MICA [neutral, think, pause=0.6]: You did. Four minutes ago.
 ```
 
-- Speakers: `REN`, `MICA` (or the custom names set in the project's `names`).
+- Speakers: the names in the project's cast (up to 4; default Ren and Mica). Add characters in the studio's
+  Cast tab, or pass `--look=<project.ember.json>` to `npm run episode` to use that project's cast.
 - Tags, any order: one emotion, one action, optional camera, optional `pause=<0–3 s>`.
 - Emotions: neutral, happy, sad, angry, surprised, worried, curious, idea.
-- Actions: none, wave, point, shrug, facepalm, think, cheer, nod, headshake, lean, jump, type, press, raise.
-- Cameras (default auto): wide, two, ren, mica, ren-cu, mica-cu, ren-ots, mica-ots, screen.
+- Actions: none, explain, wave, point, point-screen, point-other, shrug, facepalm, think, cheer, clap, thumbsup,
+  crossarms, handsup, nod, headshake, lean, jump, type, press, raise. Hands also beat on stressed words automatically.
+- Cameras (default auto): wide, two, single, cu, ots, screen. Add `:name` to frame someone else (`cu:mica`).
+  Free 360° angle: `cam=<yaw>/<pitch>/<distance>/<lens mm>` (yaw 0 = in front of the subject, 90 = their left,
+  180 = behind), optional `move=push|pull|orbit|rise|handheld|static`.
 - `>> SCREEN <alert|calm|info|success> [+progress]: KICKER | Title | Subtitle` changes the monitor on
   the next line (keep the title under ~16 characters; there is no emoji font on the renderer).
 
 ## Layout
 
 - `dist/timeline.js` — project format, validation, script parser, shot planner, faces/actions/visemes. Pure; tested.
-- `scene.js` — three.js set, characters, drawn mouth and LED face, camera, post (DOF, bloom, grade), captions.
+- `characters.js` — procedural characters (human, robot, creature, desk bot) on one rig, two-bone IK, gestures, face drawing.
+- `scene.js` — three.js set, cast layout, 360° camera presets and custom angles, post (DOF, bloom, grade), captions.
 - `audio.js` — generated score, sound effects, voice ducking.
 - `pipeline/voice.py` — Kokoro/Chatterbox voices, silence trim, word timings, Rhubarb visemes (cached in `.voice-cache`).
 - `scripts/render-chrome.mjs` — headless Chrome WebGL frames → ffmpeg, two-pass −14 LUFS.

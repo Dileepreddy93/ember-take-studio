@@ -27,11 +27,10 @@ and browser export still work, but voices and studio renders do not.
 5. **Export film → Render with the studio engine.** 1080 × 1920, 30 fps, about 14 Mbps, −14 LUFS.
    Renders are kept in `renders/` and listed in the export dialog.
 
-In **Cast → Character creator**, customize the first character as a human, robot, or creature
-(fox, cat, or dragon). Change body proportions, colors, outfit, eyes, hair, and other details,
-then choose **Apply cast**. The appearance is saved in the project and used by preview and export.
-These are procedural characters in the studio's stylized look; photorealistic or imported rigged
-models are not supported yet.
+**Cast tab:** create up to 4 characters from 5 templates (the reference "creator" look, human, robot,
+creature, desk bot) and shape each one: body proportions, hair, eyes, outfit, glasses, headwear, colours and
+voice. The stage shows a turntable of the character you are editing. **Scene tab → Camera → Custom 360°**
+gives each line a free angle: drag the dial around the character, then set height, distance, lens and move.
 
 Or from the terminal, script to finished reel in one command:
 
@@ -52,8 +51,8 @@ MICA [neutral, think, pause=0.6]: You did. Four minutes ago.
 | Tag | Values |
 |---|---|
 | Feeling | neutral, happy, sad, angry, surprised, worried, curious, idea |
-| Action | none, wave, point, shrug, facepalm, think, cheer, nod, headshake, lean, jump, type, press, raise |
-| Camera (default auto) | wide, two, ren, mica, ren-cu, mica-cu, ren-ots, mica-ots, screen |
+| Action | none, explain, wave, point, point-screen, point-other, shrug, facepalm, think, cheer, clap, thumbsup, crossarms, handsup, nod, headshake, lean, jump, type, press, raise |
+| Camera (default auto) | wide, two, single, cu, ots, screen (`cu:mica` frames Mica); `cam=yaw/pitch/dist/lens` for a 360° angle |
 | Pause | `pause=0.8` seconds of silence after the line |
 | Monitor | `>> SCREEN alert|calm|info|success [+progress]: KICKER | Title | Subtitle` before a line |
 

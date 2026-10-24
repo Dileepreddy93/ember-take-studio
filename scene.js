@@ -85,7 +85,7 @@ export class FilmScene{
     const key=JSON.stringify(p.cast.map(c=>[c.id,c.kind,c.look]));if(key===this.castKey)return;this.castKey=key;
     for(const r of this.rigs){this.cast.remove(r.root);this.cast.remove(r.shadow);disposeCharacter(r);}
     const slots=LAYOUT[p.cast.length]||LAYOUT[4];
-    this.rigs=p.cast.map((m,i)=>{const rig=buildCharacter(m),[x,z]=slots[i];rig.root.position.set(x,.26,z);rig.root.rotation.y=-x*.07;rig.baseY=.26;this.cast.add(rig.root);
+    this.rigs=p.cast.map((m,i)=>{const rig=buildCharacter(m),[x,z]=slots[i];rig.root.position.set(x,.26,z);rig.root.rotation.y=-x*.07;rig.baseYaw=rig.root.rotation.y;rig.baseY=.26;this.cast.add(rig.root);
       const sh=new THREE.Mesh(new THREE.PlaneGeometry(2.1,1.6),new THREE.MeshBasicMaterial({map:softShadow(),transparent:true,depthWrite:false}));sh.rotation.x=-PI/2;sh.position.set(x,.275,z+.05);sh.scale.setScalar(m.look.height*(m.kind==='bot'?1:m.look.build*.95));this.cast.add(sh);rig.shadow=sh;return rig;});
     this.heads={};for(const r of this.rigs){r.root.updateMatrixWorld(true);this.heads[r.member.id]=headWorld(r);}
   }
@@ -121,7 +121,8 @@ export class FilmScene{
   describeShot(seg){const f=this.shotFrame(seg);return {yaw:Math.round(f.yaw),pitch:Math.round(f.pitch),dist:Math.round(f.dist*10)/10,lens:Math.round(f.lens),move:'auto'};}
   placeCamera(st,t){
     const p=this.project;let pos,at,fov,ap;
-    if(this.focus){const rig=this.rigOf(this.focus),h=rig.member.look.height,base=rig.root.position;at=new THREE.Vector3(base.x,base.y+1.75*h,base.z);const yaw=(-25+t*24)*DEG;pos=at.clone().add(new THREE.Vector3(Math.sin(yaw)*6.4*h,1.2,Math.cos(yaw)*6.4*h));fov=36;ap=.0012;}
+    // Creator turntable: the camera holds a full-body front view while the character itself spins.
+    if(this.focus){const rig=this.rigOf(this.focus),h=rig.member.look.height,base=rig.root.position,tall=rig.kind==='bot'?2.2:3.5*h;at=new THREE.Vector3(base.x,base.y+tall*.5,base.z);pos=at.clone().add(new THREE.Vector3(0,.6,tall*1.75+1.2));fov=38;ap=.0008;}
     else if(st.shot==='screen'){pos=new THREE.Vector3(.3,4.9,7.2);at=new THREE.Vector3(0,4.15,-4.4);fov=44;ap=.0018;}
     else{
       const seg=this.previewCam?{shot:'custom',subject:this.previewCam.subject||st.subject,other:st.other,cam:this.previewCam}:{shot:st.shot,subject:st.subject,other:st.other,cam:st.cam},f=this.shotFrame(seg);
@@ -144,7 +145,8 @@ export class FilmScene{
     if(!this.manual)this.placeCamera(st,this.focus?performance.now()/1000:t);else if(this.bokeh)this.bokeh.uniforms.aperture.value=0;
     const cam=this.camera.position.clone();let press=0;const cueIndex=cue?p.cues.indexOf(cue):0;
     for(const rig of this.rigs){
-      const id=rig.member.id,speaking=st.speaker===id,talk=speaking?st.energy:0,beat=speaking?beatAt(cue,t):0,face=faceAt(p,t,id),act=actionAt(p,t,id);
+      const id=rig.member.id,focused=this.focus===id;rig.root.visible=rig.shadow.visible=!this.focus||focused;rig.root.rotation.y=rig.baseYaw+(focused?(performance.now()/1000*.6)%(PI*2):0);
+      const speaking=st.speaker===id,talk=speaking?st.energy:0,beat=speaking?beatAt(cue,t):0,face=faceAt(p,t,id),act=actionAt(p,t,id);
       const partnerId=speaking?st.other:(st.speaker||st.other),partner=this.heads[partnerId!==id?partnerId:st.subject]||cam;
       const look=speaking?cam.clone().lerp(partner,.25):cue?this.heads[st.speaker]:cam.clone().lerp(partner,.5);
       const res=animateCharacter(rig,{t,talk,beat,face,action:act,baseY:rig.baseY,cueIndex,look,partner,screen:SCREEN,key:KEY,camera:cam});press=Math.max(press,res.press);
