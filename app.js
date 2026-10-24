@@ -1,5 +1,6 @@
 import {FilmScene,FILM_LOOKS} from './scene.js';
-import {DEFAULT_PROJECT,EMOTIONS,ACTIONS,SHOTS,LOOK_OPTIONS,LOOK_RANGES,MAX_CAST,clone,validateProject,planShots,parseScript,toScript,newCastMember,normalizeLook,CAST_TEMPLATES} from './dist/timeline.js';
+import {NATURE} from './worlds.js';
+import {DEFAULT_PROJECT,EMOTIONS,ACTIONS,SHOTS,LOOK_OPTIONS,LOOK_RANGES,MAX_CAST,clone,validateProject,planShots,parseScript,toScript,newCastMember,normalizeLook,CAST_TEMPLATES,SETS,TIMES_OF_DAY,CAMERA_STYLES,WORLD_PARTICLES} from './dist/timeline.js';
 import {makeSound,RATE} from './audio.js';
 import {exportFilm} from './exporter.js';
 const $=id=>document.getElementById(id),storageKey='ember-take-project-v3';
@@ -46,7 +47,8 @@ function refresh(){
   renderCards();options($('speaker'),project.cast.map(m=>[m.id,m.name]));options($('shot'),SHOTS.map(s=>[s,shotName(s)]));fillLine();renderCast();
   $('title').value=project.title;$('scrub').max=project.duration;$('duration-label').textContent=timer(project.duration);$('mid-label').textContent=timer(project.duration/2);
   const names=project.cast.map(c=>c.name);$('story-intro').textContent=`Direct ${names.length>1?names.slice(0,-1).join(', ')+' & '+names.at(-1):names[0]}’s next adventure.`;
-  for(const [id,k] of [['character-style','characterStyle'],['film-look','filmLook'],['camera-flow','cameraFlow'],['warmth','warmth'],['duration','duration'],['handle','handle'],['caption-style','captionStyle'],['end-title','endTitle'],['end-sub','endSub'],['music-volume','musicVolume']])$(id).value=project[k];
+  renderWorld();
+  for(const [id,k] of [['camera-style','cameraStyle'],['character-style','characterStyle'],['film-look','filmLook'],['camera-flow','cameraFlow'],['warmth','warmth'],['duration','duration'],['handle','handle'],['caption-style','captionStyle'],['end-title','endTitle'],['end-sub','endSub'],['music-volume','musicVolume']])$(id).value=project[k];
   for(const [id,k] of [['captions','captions'],['dof','dof'],['intro','intro'],['music','music'],['sfx','sfx']])$(id).checked=project[k];
   document.querySelectorAll('input[name=engine]').forEach(r=>r.checked=r.value===project.voiceEngine);
   $('sound').textContent=project.music?'♫ Sound on':'♫ Score off';$('sound').setAttribute('aria-pressed',String(project.music));$('undo').disabled=!history.length;$('redo').disabled=!future.length;
@@ -121,8 +123,8 @@ $('add-line').onclick=()=>{try{const p=clone(project),start=freeSlot(p),c={id:Ma
 $('duplicate-line').onclick=()=>{try{const p=clone(project),src=p.cues.find(c=>c.id===selected),len=src.end-src.start,start=freeSlot(p,len),c={...clone(src),id:Math.max(...p.cues.map(c=>c.id))+1,start,end:start+len};delete c.visemes;delete c.words;delete c.screen;p.cues.push(c);selected=c.id;commit(p,{keepAudio:true});toast('Line duplicated at the next free moment.');}catch(e){toast(e.message)}};
 $('delete-line').onclick=()=>{commit({...project,cues:project.cues.filter(c=>c.id!==selected)},{keepAudio:true});};
 document.querySelectorAll('input[name=engine]').forEach(r=>r.onchange=()=>{try{commit({...project,voiceEngine:r.value},{keepAudio:true});}catch(e){toast(e.message)}});
-$('apply-film').onclick=()=>{try{commit({...project,characterStyle:$('character-style').value,filmLook:$('film-look').value,cameraFlow:$('camera-flow').value,handle:$('handle').value.trim(),captionStyle:$('caption-style').value,warmth:Number($('warmth').value),captions:$('captions').checked,dof:$('dof').checked,intro:$('intro').checked,endTitle:$('end-title').value.trim(),endSub:$('end-sub').value.trim(),duration:Number($('duration').value),music:$('music').checked,musicVolume:Number($('music-volume').value),sfx:$('sfx').checked},{keepAudio:true});toast('Film settings applied.');}catch(e){toast(e.message)}};
-document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x===b));for(const t of ['line','cast','voice','film'])$('tab-'+t).hidden=t!==b.dataset.tab;stop();scene.setFocus(b.dataset.tab==='cast'?member().id:null);render();});
+$('apply-film').onclick=()=>{try{commit({...project,cameraStyle:$('camera-style').value,characterStyle:$('character-style').value,filmLook:$('film-look').value,cameraFlow:$('camera-flow').value,handle:$('handle').value.trim(),captionStyle:$('caption-style').value,warmth:Number($('warmth').value),captions:$('captions').checked,dof:$('dof').checked,intro:$('intro').checked,endTitle:$('end-title').value.trim(),endSub:$('end-sub').value.trim(),duration:Number($('duration').value),music:$('music').checked,musicVolume:Number($('music-volume').value),sfx:$('sfx').checked},{keepAudio:true});toast('Film settings applied.');}catch(e){toast(e.message)}};
+document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x===b));for(const t of ['line','cast','world','voice','film'])$('tab-'+t).hidden=t!==b.dataset.tab;stop();scene.setFocus(b.dataset.tab==='cast'?member().id:null);render();});
 $('orbit').onclick=()=>{stop();scene.setManual(!scene.manual);$('orbit').setAttribute('aria-pressed',String(scene.manual));$('status').textContent=scene.manual?'Drag to orbit. Scroll or pinch to zoom.':'Story camera active.';render();};$('frame').onclick=()=>{scene.setManual(false);$('orbit').setAttribute('aria-pressed','false');render();};
 function restore(next){project=next;stop();voiceBuffer=null;musicBuffer=null;soundBuffer=null;scene.setProject(project);persist();refresh();render();}
 $('undo').onclick=()=>{if(!history.length)return;future.push(clone(project));restore(history.pop());};$('redo').onclick=()=>{if(!future.length)return;history.push(clone(project));restore(future.pop());};
@@ -192,13 +194,13 @@ const LIP={oculus:'visemes',arkit:'ARKit face',vroid:'VRoid mouth',vrm:'VRM expr
 let library=[];
 async function loadLibrary(){if(!server)return;try{library=await api('/api/library');}catch{library=[];}renderLibrary();renderCast();}
 function renderLibrary(){
-  const list=$('library-list');list.replaceChildren(...library.map(item=>{const li=document.createElement('div'),info=document.createElement('div'),add=document.createElement('button'),del=document.createElement('button');li.className='library-item';
+  const list=$('library-list'),chars=library.filter(i=>i.type==='imported'||i.type==='preset');list.replaceChildren(...chars.map(item=>{const li=document.createElement('div'),info=document.createElement('div'),add=document.createElement('button'),del=document.createElement('button');li.className='library-item';
     const r=item.report;info.innerHTML=`<b></b><small><span class="badge ${item.type}">${item.type==='imported'?'3D IMPORT':'PRESET'}</span></small>`;info.querySelector('b').textContent=item.name;
     info.querySelector('small').append(item.type==='imported'?`${r.triangles.toLocaleString()} tris · lip sync: ${LIP[r.face.lipSync]}`:KIND_NAMES[item.member.kind]);
     add.className='secondary';add.textContent='Add';add.onclick=()=>addFromLibrary(item);del.className='quiet';del.textContent='✕';del.title='Delete from library';
     del.onclick=async()=>{if(!confirm(`Delete "${item.name}" from the library? Episodes that use it will show a placeholder.`))return;try{await fetch('/api/library/'+item.id,{method:'DELETE'});await loadLibrary();}catch(e){toast(e.message)}};
     li.append(info,add,del);return li;}));
-  $('library-empty').hidden=Boolean(library.length);$('library-empty').textContent=server?'Saved and imported characters appear here, ready for any episode.':'Start the studio engine (npm run studio) to use the character library.';
+  $('library-empty').hidden=Boolean(chars.length);renderWorld();$('library-empty').textContent=server?'Saved and imported characters appear here, ready for any episode.':'Start the studio engine (npm run studio) to use the character library.';
   for(const id of ['import-character','save-to-library'])$(id).disabled=!server||(id==='save-to-library'&&member().kind==='imported');
 }
 function addFromLibrary(item){
@@ -208,21 +210,60 @@ function addFromLibrary(item){
     p.cast.push(m);castSel=m.id;commit(p,{keepAudio:true});scene.setFocus(m.id);render();toast(`${m.name} joined the cast.`);return m;}catch(e){toast(e.message)}
 }
 $('save-to-library').onclick=async()=>{try{const m=member();await api('/api/library/preset',{member:m});await loadLibrary();toast(`${m.name} saved to your library.`);}catch(e){toast(e.message)}};
-$('import-character').onclick=()=>$('character-file').click();
+let rightsOk=false;
+const confirmRights=()=>rightsOk||(rightsOk=confirm('Only import characters and worlds you made yourself, licensed, or that are free for commercial use (CC0, or CC-BY with credit).\n\nTV and film characters (for example Doraemon or Nobita) belong to their studios: you need their permission to use them, especially in paid client work.\n\nContinue?'));
+$('import-character').onclick=()=>{if(confirmRights())$('character-file').click();};
 function showReport(r,title){
   const box=$('import-report');box.replaceChildren();$('import-title').textContent=title;
-  if(r){const stats=document.createElement('div');stats.className='stats';for(const [v,l] of [[`${r.sizeMB} MB`,r.format.toUpperCase()+(r.vrm?' '+r.vrm:'')],[r.triangles.toLocaleString(),'triangles'],[Object.keys(r.bones).length,'bones mapped'],[LIP[r.face.lipSync],'lip sync'],[r.face.blink?'yes':'no','blink'],[r.face.emotions.join(', ')||'none','expressions']]){const d=document.createElement('div');d.className='stat';d.innerHTML='<b></b><small></small>';d.querySelector('b').textContent=v;d.querySelector('small').textContent=l;stats.append(d);}box.append(stats);
+  if(r){const stats=document.createElement('div');stats.className='stats';for(const [v,l] of r.kind==='backdrop'?[[`${r.sizeMB} MB`,r.format.toUpperCase()],[`${r.width}×${r.height}`,'pixels'],[(r.width/r.height).toFixed(2)+':1','shape (needs 2:1)']]:r.kind==='world'?[[`${r.sizeMB} MB`,'GLB'],[r.triangles.toLocaleString(),'triangles'],[r.animations,'animations']]:[[`${r.sizeMB} MB`,r.format.toUpperCase()+(r.vrm?' '+r.vrm:'')],[r.triangles.toLocaleString(),'triangles'],[Object.keys(r.bones).length,'bones mapped'],[LIP[r.face.lipSync],'lip sync'],[r.face.blink?'yes':'no','blink'],[r.face.emotions.join(', ')||'none','expressions']]){const d=document.createElement('div');d.className='stat';d.innerHTML='<b></b><small></small>';d.querySelector('b').textContent=v;d.querySelector('small').textContent=l;stats.append(d);}box.append(stats);
     for(const [list,cls,icon] of [[r.errors,'err','✕'],[r.warnings,'warn','!']])for(const msg of list){const c=document.createElement('div');c.className='check '+cls;c.innerHTML=`<i>${icon}</i><span></span>`;c.querySelector('span').textContent=msg;box.append(c);}
     if(r.ok&&!r.warnings.length){const c=document.createElement('div');c.className='check ok';c.innerHTML='<i>✓</i><span>Everything this studio uses is present.</span>';box.append(c);}}
 }
+async function uploadToLibrary(f,kind){
+  const res=await fetch('/api/library/import',{method:'POST',headers:{'content-type':'application/octet-stream','x-kind':kind,'x-filename':encodeURIComponent(f.name),'x-name':encodeURIComponent(f.name.replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ').slice(0,24))},body:f});
+  return {res,data:await res.json().catch(()=>({error:`Upload failed (${res.status})`}))};
+}
 $('character-file').onchange=async e=>{
   const f=e.target.files[0];$('character-file').value='';if(!f)return;$('import-add').hidden=true;showReport(null,`Checking ${f.name}…`);$('import-dialog').showModal();
-  try{const res=await fetch('/api/library/import',{method:'POST',headers:{'content-type':'application/octet-stream','x-filename':encodeURIComponent(f.name),'x-name':encodeURIComponent(f.name.replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ').slice(0,16))},body:f});
+  try{const res=await fetch('/api/library/import',{method:'POST',headers:{'content-type':'application/octet-stream','x-kind':'character','x-filename':encodeURIComponent(f.name),'x-name':encodeURIComponent(f.name.replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ').slice(0,16))},body:f});
     const data=await res.json().catch(()=>({error:`Upload failed (${res.status})`}));
     if(!res.ok){showReport(data.report,data.report?'This character can’t be used yet':'Import failed');if(!data.report)$('import-report').textContent=data.error;return;}
     showReport(data.report,`${data.name} is in your library`);await loadLibrary();$('import-add').hidden=false;$('import-add').onclick=()=>{$('import-dialog').close();addFromLibrary(data);};
   }catch(err){showReport(null,'Import failed');$('import-report').textContent=err.message;}
 };
+
+// Worlds: presets built from settings (no fixed scenery) or your own imported 360° backgrounds and 3D scenes.
+const WORLD_INFO={desk:['Desk studio','Keyboard, monitor, lamp'],forest:['Forest','Trees, grass, sign'],meadow:['Meadow','Open grass and flowers'],snow:['Snowy woods','Pines, snowfall'],custom:['My world','Your 360° photo or 3D scene']};
+const PARTICLE_NAMES={leaves:'Falling leaves',fireflies:'Fireflies',dust:'Sunbeam dust',pollen:'Pollen',snow:'Snowfall',rain:'Rain'};
+function worldWith(changes){return {...clone(project),...changes.top,world:{...project.world,...(changes.world||{})}};}
+function setWorld(changes){try{commit(worldWith(changes),{keepAudio:true});}catch(e){toast(e.message)}}
+function renderWorld(){
+  const p=project,w=p.world;
+  $('world-cards').replaceChildren(...SETS.map(id=>{const b=document.createElement('button');b.className='world-card'+(p.set===id?' selected':'');b.innerHTML='<b></b><small></small>';b.querySelector('b').textContent=WORLD_INFO[id][0];b.querySelector('small').textContent=WORLD_INFO[id][1];b.onclick=()=>setWorld({top:{set:id}});return b;}));
+  const nature=['forest','meadow','snow'].includes(p.set);$('nature-fields').hidden=!nature;$('custom-fields').hidden=p.set!=='custom';$('world-time').closest('label').hidden=p.set==='desk';$('world-sign').closest('label').hidden=p.set==='desk';
+  $('world-time').value=p.timeOfDay;$('world-foliage').value=w.foliage;$('world-wind').value=w.wind;$('foliage-out').value=`${Math.round(w.foliage*100)}%`;$('wind-out').value=`${Math.round(w.wind*100)}%`;$('world-sign').checked=w.sign;$('world-campfire').checked=w.campfire;
+  const active=new Set(w.particles??(nature?NATURE[p.set].defaults(p.timeOfDay):[]));
+  $('particle-grid').replaceChildren(...WORLD_PARTICLES.map(k=>{const l=document.createElement('label'),c=document.createElement('input');c.type='checkbox';c.checked=active.has(k);c.onchange=()=>{const next=new Set(active);c.checked?next.add(k):next.delete(k);setWorld({world:{particles:[...next]}});};l.append(c,' '+PARTICLE_NAMES[k]);return l;}));
+  const items=type=>[['','None'],...library.filter(i=>i.type===type).map(i=>[i.id,i.name])];options($('world-backdrop'),items('backdrop'));options($('world-scene'),items('world'));$('world-backdrop').value=w.backdrop||'';$('world-scene').value=w.scene||'';
+  for(const [id,k] of [['world-scale','scale'],['world-turn','turn'],['world-pano','panoHeight'],['world-ox','offsetX'],['world-oy','offsetY'],['world-oz','offsetZ']])$(id).value=w[k];
+  for(const id of ['import-world','import-backdrop'])$(id).disabled=!server;
+  $('world-items').replaceChildren(...library.filter(i=>i.type==='world'||i.type==='backdrop').map(item=>{const li=document.createElement('div'),info=document.createElement('div'),del=document.createElement('button');li.className='library-item';info.innerHTML=`<b></b><small><span class="badge">${item.type==='world'?'3D WORLD':'360° BG'}</span></small>`;info.querySelector('b').textContent=item.name;info.querySelector('small').append(item.type==='world'?`${item.report.triangles.toLocaleString()} tris · ${item.report.animations} anim`:`${item.report.width}×${item.report.height} ${item.report.format}`);
+    del.className='quiet';del.textContent='✕';del.title='Delete from library';del.onclick=async()=>{if(!confirm(`Delete "${item.name}"?`))return;await fetch('/api/library/'+item.id,{method:'DELETE'});if(w.backdrop===item.id||w.scene===item.id)setWorld({world:{backdrop:w.backdrop===item.id?null:w.backdrop,scene:w.scene===item.id?null:w.scene}});loadLibrary();};li.append(info,del);return li;}));
+  $('world-note').textContent=p.set==='custom'&&!w.backdrop&&!w.scene?'Import or choose a 360° background or a 3D scene to build your world.':p.set==='desk'?'The original studio set.':'';
+}
+$('world-time').onchange=()=>setWorld({top:{timeOfDay:$('world-time').value}});
+for(const [id,k] of [['world-foliage','foliage'],['world-wind','wind']]){$(id).oninput=()=>{$(id==='world-foliage'?'foliage-out':'wind-out').value=`${Math.round($(id).value*100)}%`;};$(id).onchange=()=>setWorld({world:{[k]:Number($(id).value)}});}
+$('world-sign').onchange=()=>setWorld({world:{sign:$('world-sign').checked}});$('world-campfire').onchange=()=>setWorld({world:{campfire:$('world-campfire').checked}});
+$('world-backdrop').onchange=()=>setWorld({world:{backdrop:$('world-backdrop').value||null}});$('world-scene').onchange=()=>setWorld({world:{scene:$('world-scene').value||null}});
+for(const [id,k] of [['world-scale','scale'],['world-turn','turn'],['world-pano','panoHeight'],['world-ox','offsetX'],['world-oy','offsetY'],['world-oz','offsetZ']])$(id).onchange=()=>setWorld({world:{[k]:Number($(id).value)}});
+for(const [btn,input,kind] of [['import-world','world-file','world'],['import-backdrop','backdrop-file','backdrop']]){
+  $(btn).onclick=()=>{if(confirmRights())$(input).click();};
+  $(input).onchange=async e=>{const f=e.target.files[0];$(input).value='';if(!f)return;$('import-add').hidden=true;showReport(null,`Checking ${f.name}…`);$('import-dialog').showModal();
+    try{const {res,data}=await uploadToLibrary(f,kind);if(!res.ok){showReport(data.report,data.report?'This file can’t be used yet':'Import failed');if(!data.report)$('import-report').textContent=data.error;return;}
+      showReport(data.report,`${data.name} is in your library`);await loadLibrary();$('import-add').textContent='Use in this film';$('import-add').hidden=false;
+      $('import-add').onclick=()=>{$('import-dialog').close();$('import-add').textContent='Add to cast';setWorld({top:{set:'custom'},world:{[kind==='world'?'scene':'backdrop']:data.id}});toast(`${data.name} is now your world.`);};
+    }catch(err){showReport(null,'Import failed');$('import-report').textContent=err.message;}};
+}
 
 // 360° camera: dial for the angle around the subject (0° = in front of them), height, distance, lens, move.
 const DEG=Math.PI/180,dial=$('cam-dial');
@@ -253,18 +294,21 @@ const openScript=()=>{stop();$('script-text').value=toScript(project);$('script-
 $('script-open').onclick=openScript;$('script-open-2').onclick=openScript;
 document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>$(b.dataset.close).close());
 $('import-script').onclick=()=>{try{const {meta,cues}=parseScript($('script-text').value,project),last=cues.at(-1).end,duration=Math.min(90,Math.max(project.duration,Math.ceil(last+2.5)));
-  const p={...clone(project),cues,duration,voiceData:null,title:meta.title||project.title,handle:meta.handle??project.handle};selected=cues[0].id;time=0;commit(p);$('script-dialog').close();toast('Script loaded. Open the Voice tab to give it voices.');document.querySelector('[data-tab=voice]').click();}catch(e){$('script-error').textContent=e.message;}};
+  const p={...clone(project),cues,duration,voiceData:null,title:meta.title||project.title,handle:meta.handle??project.handle,...(SETS.includes(meta.set)&&{set:meta.set}),...(TIMES_OF_DAY.includes(meta.time)&&{timeOfDay:meta.time}),...(CAMERA_STYLES.includes(meta.camera)&&{cameraStyle:meta.camera})};selected=cues[0].id;time=0;commit(p);$('script-dialog').close();toast('Script loaded. Open the Voice tab to give it voices.');document.querySelector('[data-tab=voice]').click();}catch(e){$('script-error').textContent=e.message;}};
 $('download-script').onclick=()=>download(new Blob([$('script-text').value],{type:'text/plain'}),fileBase()+'.script.txt');
 const KIND_TEXT={human:'a human',robot:'a humanoid robot',creature:'a cartoon creature',bot:'a small desk robot with an LED face'};
 $('copy-prompt').onclick=async()=>{const topic=$('ai-topic').value.trim()||'something funny that happens at their desk today',cast=project.cast,first=cast[0].name.toUpperCase(),second=(cast[1]||cast[0]).name.toUpperCase(),prompt=`You write short comedy scripts for a 3D animated vertical reel (9:16, 30 to 55 seconds).
 Characters:
 ${cast.map(c=>`- ${c.name}: ${KIND_TEXT[c.kind]}${c.kind==='creature'?` (${c.look.species})`:''}. Give them a clear, consistent personality.`).join('\n')}
-Setting: they stand on a giant keyboard in front of a huge monitor whose screen can change.
+Setting: choose the world that suits the story (a giant desk keyboard with a monitor, a forest, a meadow or snowy woods); the monitor or a wooden sign can show text.
 Write an episode about: ${topic}
 
 Structure: a hook in the first line, escalation, one silent beat, and a callback punchline at the end. 8 to 14 lines, about 100 spoken words in total, each line under 160 characters.
 Reply with the script only, in exactly this format, one line each:
 # title: <short episode title>
+# set: <desk, forest, meadow or snow>
+# time: <morning, golden or night>
+# camera: <cinematic, calm or dynamic>
 ${first} [emotion, action]: spoken line
 ${second} [emotion, action, pause=0.8]: spoken line
 >> SCREEN tone: KICKER | Title | Subtitle   (optional; put it before a line to change the monitor; tone is alert, calm, info or success; add +progress after the tone for a progress bar)

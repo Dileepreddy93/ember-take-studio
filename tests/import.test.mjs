@@ -54,3 +54,26 @@ test('an imported Mixamo character stands at studio height and its hand reaches 
   pose('raise');assert.ok(importedHandPos(r.arms[1]).y>r.B.head.getWorldPosition(new THREE.Vector3()).y,'raised hand above the head');
   for(const v of r.B.leftLowerArm.matrixWorld.elements)assert.ok(Number.isFinite(v));
 });
+
+const {validateWorld,validateBackdrop,imageSize}=await import('../character-import.js');
+test('360° backgrounds must be 2:1 equirectangular images; size is read from the header',()=>{
+  const png=(w,h)=>{const b=new Uint8Array(32);b.set([0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A]);const v=new DataView(b.buffer);v.setUint32(16,w);v.setUint32(20,h);return b;};
+  assert.deepEqual(imageSize(png(4096,2048)),{type:'png',width:4096,height:2048});
+  assert.ok(validateBackdrop(png(4096,2048).buffer,'sky.png').ok);
+  const flat=validateBackdrop(png(1920,1080).buffer,'photo.png');assert.equal(flat.ok,false);assert.ok(flat.errors[0].includes('2:1'));
+  assert.equal(validateBackdrop(png(4096,2048).buffer,'sky.gif').ok,false);
+  const hdr=new TextEncoder().encode('#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 1024 +X 2048\n');assert.deepEqual(imageSize(hdr),{type:'hdr',width:2048,height:1024});
+});
+const tokyo=fixture('LittlestTokyo.glb'),hdri=fixture('forest_slope_2k.hdr');
+test('real worlds: an animated Draco scene and a Poly Haven HDRI pass',{skip:!tokyo&&'test-assets not downloaded'},()=>{
+  const w=validateWorld(tokyo,'LittlestTokyo.glb');assert.ok(w.ok,w.errors.join());assert.equal(w.animations,1);
+  if(hdri){const b=validateBackdrop(hdri,'forest_slope_2k.hdr');assert.ok(b.ok,b.errors.join());assert.equal(b.width,2048);}
+  if(xbot)assert.ok(validateWorld(xbot,'Xbot.glb').warnings.some(m=>/character/.test(m)));
+});
+test('world settings normalise and scripts can choose the world and camera style',async()=>{
+  const {validateProject,DEFAULT_PROJECT,clone,parseScript}=await import('../dist/timeline.js');
+  const p=validateProject({...clone(DEFAULT_PROJECT),set:'snow',world:{foliage:9,particles:['snow','bogus'],backdrop:'not an id',offsetX:500}});
+  assert.equal(p.world.foliage,1.6);assert.deepEqual(p.world.particles,['snow']);assert.equal(p.world.backdrop,null);assert.equal(p.world.offsetX,100);
+  assert.equal(validateProject({...clone(DEFAULT_PROJECT),set:'moon'}).set,'desk');
+  const {meta}=parseScript('# set: Forest\n# time: night\n# camera: calm\nREN: hi',p);assert.deepEqual([meta.set,meta.time,meta.camera],['forest','night','calm']);
+});

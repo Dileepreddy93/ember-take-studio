@@ -22,14 +22,16 @@ await build({entryPoints:[resolve(root,'render-entry.js')],bundle:true,format:'i
 await writeFile(resolve(root,'dist/render.html'),'<!doctype html><meta charset="utf-8"><body style="margin:0;background:#000"><script src="./render.bundle.js"></script>');
 
 // GPU through ANGLE/OpenGL by default (about 10x faster); --cpu forces the SwiftShader software path.
-const gpuFlags=args.cpu?['--use-angle=swiftshader','--enable-unsafe-swiftshader']:['--use-gl=angle','--use-angle=gl','--ignore-gpu-blocklist','--enable-gpu-rasterization'];
+const gpuFlags=[...(args.cpu?['--use-angle=swiftshader','--enable-unsafe-swiftshader']:['--use-gl=angle','--use-angle=gl','--ignore-gpu-blocklist','--enable-gpu-rasterization']),'--allow-file-access-from-files'];
 const browser=await chromium.launch({executablePath:args.chrome||'/usr/bin/google-chrome',args:gpuFlags});
 const page=await browser.newPage();
 page.on('pageerror',e=>console.error('page error:',e.message));
 await page.goto(pathToFileURL(resolve(root,'dist/render.html')).href);
 // Imported characters: hand the page each library model the cast uses.
-const assets={};for(const c of project.cast.filter(c=>c.kind==='imported')){const dir=resolve(root,'library',c.asset.id),meta=JSON.parse(await readFile(resolve(dir,'meta.json'),'utf8'));assets[c.asset.id]=(await readFile(resolve(dir,meta.file))).toString('base64');}
-const info=await page.evaluate(([p,w,a])=>window.emberRender.init(p,w,a),[project,width,assets]);
+const assets={},ids=[...project.cast.filter(c=>c.kind==='imported').map(c=>c.asset.id),...(project.set==='custom'?[project.world.backdrop,project.world.scene]:[])].filter(Boolean);
+for(const id of ids){const dir=resolve(root,'library',id),meta=JSON.parse(await readFile(resolve(dir,'meta.json'),'utf8'));assets[id]=(await readFile(resolve(dir,meta.file))).toString('base64');}
+const vendor=pathToFileURL(resolve(root,'node_modules/three/examples/jsm/libs'))+'/';
+const info=await page.evaluate(([p,w,a,v])=>window.emberRender.init(p,w,a,v),[project,width,assets,vendor]);
 if(info.software)console.warn('WebGL unavailable: using the software rasterizer (simpler lighting).');
 if(args.focus)await page.evaluate(id=>window.emberRender.scene.setFocus(id),String(args.focus));
 if(args.stills){

@@ -9,7 +9,7 @@ import {resolve,dirname,extname,relative} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
 import {build} from 'esbuild';
-import {validateCharacter,IMPORT_RULES} from './character-import.js';
+import {validateCharacter,validateWorld,validateBackdrop,IMPORT_RULES,WORLD_RULES} from './character-import.js';
 
 const root=dirname(fileURLToPath(import.meta.url)),forge=resolve(root,'..'),PORT=Number(process.env.PORT||8765);
 const PY=resolve(forge,'.venv/bin/python'),CB=resolve(forge,'.venv-cb/bin/python'),RHUBARB=resolve(forge,'tools/Rhubarb-Lip-Sync-1.14.0-Linux/rhubarb');
@@ -66,7 +66,7 @@ async function renderJob(project,width){
   });
 }
 
-const TYPES={'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.json':'application/json','.mp4':'video/mp4','.jpg':'image/jpeg','.png':'image/png','.svg':'image/svg+xml','.wav':'audio/wav','.zip':'application/zip','.glb':'model/gltf-binary','.vrm':'model/gltf-binary'};
+const TYPES={'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.json':'application/json','.mp4':'video/mp4','.jpg':'image/jpeg','.png':'image/png','.svg':'image/svg+xml','.wav':'audio/wav','.zip':'application/zip','.glb':'model/gltf-binary','.vrm':'model/gltf-binary','.wasm':'application/wasm','.hdr':'application/octet-stream'};
 async function rawBody(req,limit){const chunks=[];let size=0;for await(const c of req){size+=c.length;if(size>limit)throw Object.assign(Error(`The file is over ${limit/1e6} MB.`),{status:413});chunks.push(c);}return Buffer.concat(chunks);}
 // Character library: imported GLB/VRM models (validated on upload) and saved built-in characters (presets).
 async function listLibrary(){
@@ -89,10 +89,12 @@ http.createServer(async(req,res)=>{
     if(path==='/api/status')return send(res,200,{engines:engines(),voices:VOICES,importRules:IMPORT_RULES});
     if(path==='/api/library'&&req.method==='GET')return send(res,200,await listLibrary());
     if(path==='/api/library/import'&&req.method==='POST'){
-      const file=decodeURIComponent(req.headers['x-filename']||'character.glb'),name=decodeURIComponent(req.headers['x-name']||'').trim().slice(0,16)||file.replace(/\.[^.]+$/,'').slice(0,16),data=await rawBody(req,IMPORT_RULES.maxBytes+1e6);
-      const report=validateCharacter(data,file);if(!report.ok)return send(res,422,{error:report.errors[0],report});
-      const id=randomUUID(),dir=resolve(libraryDir,id),model='model'+(report.format==='vrm'?'.vrm':'.glb');await mkdir(dir);await writeFile(resolve(dir,model),data);
-      const meta={id,type:'imported',name,file:model,source:file,created:Date.now(),report:{...report,face:{...report.face,morphs:report.face.morphs.slice(0,80)}}};await writeFile(resolve(dir,'meta.json'),JSON.stringify(meta));
+      // x-kind: character (rigged .glb/.vrm), world (3D scene .glb) or backdrop (360° .jpg/.png/.hdr).
+      const kind=['world','backdrop'].includes(req.headers['x-kind'])?req.headers['x-kind']:'character',file=decodeURIComponent(req.headers['x-filename']||'character.glb'),name=decodeURIComponent(req.headers['x-name']||'').trim().slice(0,24)||file.replace(/\.[^.]+$/,'').slice(0,24);
+      const data=await rawBody(req,(kind==='character'?IMPORT_RULES.maxBytes:kind==='world'?WORLD_RULES.maxBytes:WORLD_RULES.maxBackdropBytes)+1e6);
+      const report=kind==='world'?validateWorld(data,file):kind==='backdrop'?validateBackdrop(data,file):validateCharacter(data,file);if(!report.ok)return send(res,422,{error:report.errors[0],report});
+      const id=randomUUID(),dir=resolve(libraryDir,id),model=kind==='world'?'world.glb':kind==='backdrop'?'backdrop.'+(report.format==='jpeg'?'jpg':report.format):'model'+(report.format==='vrm'?'.vrm':'.glb');await mkdir(dir);await writeFile(resolve(dir,model),data);
+      const meta={id,type:kind==='character'?'imported':kind,name,file:model,source:file,created:Date.now(),report:report.face?{...report,face:{...report.face,morphs:report.face.morphs.slice(0,80)}}:report};await writeFile(resolve(dir,'meta.json'),JSON.stringify(meta));
       return send(res,201,meta);
     }
     if(path==='/api/library/preset'&&req.method==='POST'){
@@ -109,6 +111,8 @@ http.createServer(async(req,res)=>{
       const list=[];for(const name of await readdir(rendersDir).catch(()=>[])){const f=resolve(rendersDir,name,'film.mp4');const s=await stat(f).catch(()=>null);if(!s)continue;let title=name;const proj=existsSync(resolve(rendersDir,name,'project.ember.json'));if(proj){try{title=JSON.parse(await readFile(resolve(rendersDir,name,'project.ember.json'),'utf8')).title||name;}catch{}}list.push({name,title,url:`/renders/${name}/film.mp4`,project:proj?`/renders/${name}/project.ember.json`:null,size:s.size,created:s.mtimeMs});}
       return send(res,200,list.sort((a,b)=>b.created-a.created).slice(0,30));
     }
+    // Decoders for compressed models (Draco, KTX2/Basis), served from three.js.
+    if(/^\/vendor\/(draco|basis)\/[\w.]+$/.test(path)){const [, ,dir,file]=path.split('/');return serveFile(req,res,resolve(root,'node_modules/three/examples/jsm/libs',dir,file));}
     if(path.startsWith('/renders/')){const file=resolve(rendersDir,path.slice(9));if(!inside(rendersDir,file))return send(res,403,{error:'Forbidden'});return serveFile(req,res,file);}
     const dist=resolve(root,'dist'),file=resolve(dist,path==='/'?'index.html':path.slice(1));
     if(!inside(dist,file))return send(res,403,{error:'Forbidden'});return serveFile(req,res,file);

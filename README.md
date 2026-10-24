@@ -48,9 +48,28 @@ missing. Imported characters use the same gestures, look-at, emotions and camera
 Free sources: VRoid Studio (export `.vrm`), Mixamo (rig and download, convert FBX → GLB in Blender), Blender's
 glTF exporter. Only import characters you have the rights to use commercially.
 
-**Film tab:** *Character style* (Smooth premium shading or faceted Low-poly), *Film look* (10 grades: studio,
-cinematic teal & orange, golden hour, pastel, neon, vintage, noir, documentary, dreamy, retro VHS) and
-*Camera flow* (*Cuts*, or *One take*: the camera glides from shot to shot with no cuts).
+**World tab:** where the story happens. *Desk studio*, *Forest*, *Meadow* and *Snowy woods* are built from
+settings, not fixed scenery: time of day, trees & plants, wind, and animated effects (falling leaves,
+fireflies, sunbeam dust, pollen, snowfall, rain, a night campfire). *My world* uses your own files:
+
+| Import | Rules |
+|---|---|
+| 360° background | equirectangular (2:1) `.hdr`, `.jpg` or `.png`, up to 60 MB; 4096 px+ looks best. Characters stand on its ground and are lit by it |
+| 3D world | `.glb` up to 80 MB / 2M triangles; Draco, KTX2 and meshopt are fine; its animations loop on the film clock; Move/Turn/Scale place it around the cast |
+
+Free sources: Poly Haven (CC0 HDRIs and models), Kenney and Quaternius (CC0 worlds, animated animals),
+Sketchfab (check each licence). [BlenderMCP](https://github.com/ahujasid/blender-mcp) lets Claude build
+characters and scenes in Blender for export as `.glb`.
+
+**Film tab:** *Camera style* (Cinematic shot/reverse-shot coverage, Calm with fewer cuts, Dynamic with
+reaction shots), *Character style* (Smooth or Low-poly), *Film look* (10 grades) and *Camera flow*
+(*Cuts* or *One take*). The director frames every shot from each character's body (headroom, faces in the
+vertical-video safe zone, room in front of the face), widens for gestures, avoids jump cuts, keeps the
+camera on one side of the conversation, and turns characters toward each other while they talk.
+
+**Characters you don't own:** TV and film characters (for example Doraemon or Nobita) belong to their
+studios. Import or recreate them only with the rights holder's permission; for client work, design
+original characters instead.
 
 Or from the terminal, script to finished reel in one command:
 

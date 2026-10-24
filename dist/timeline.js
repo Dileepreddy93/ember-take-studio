@@ -4,7 +4,15 @@ export const KINDS=['human','robot','creature','bot','imported'];
 export const SPECIES=['fox','cat','dragon','bear','bunny'];
 export const EMOTIONS=['neutral','happy','sad','angry','surprised','worried','curious','idea'];
 export const ACTIONS=['none','explain','wave','point','point-screen','point-other','shrug','facepalm','think','cheer','clap','thumbsup','crossarms','handsup','nod','headshake','lean','jump','type','press','raise'];
-export const SHOTS=['auto','wide','two','single','cu','ots','screen','custom'];
+export const SHOTS=['auto','wide','two','fs','ms','single','cu','ecu','ots','screen','custom'];
+// Shot sizes from widest to tightest; the director never frames a gesture tighter than it needs.
+export const SHOT_SIZE={wide:6,two:5,fs:4,ms:3,single:2,ots:2,cu:1,ecu:0};
+export const CAMERA_STYLES=['cinematic','calm','dynamic'];
+export const SETS=['desk','forest','meadow','snow','custom'];export const TIMES_OF_DAY=['morning','golden','night'];
+export const WORLD_PARTICLES=['leaves','fireflies','dust','pollen','snow','rain'];
+// World settings: density/wind/effects for nature sets; library ids and placement for custom worlds.
+export const WORLD_DEFAULTS={foliage:1,wind:1,particles:null,sign:true,campfire:true,backdrop:null,scene:null,scale:2,turn:0,panoHeight:4,offsetX:0,offsetY:0,offsetZ:0};
+const ACTION_FRAMING={jump:'fs',cheer:'ms',handsup:'ms',wave:'ms',raise:'ms',shrug:'ms',clap:'ms',crossarms:'ms','point-screen':'ms','point-other':'two',lean:'ms',type:'ms',press:'ms',explain:'single',thumbsup:'single',facepalm:'single',think:'single'};
 export const MOVES=['auto','static','push','pull','orbit','rise','handheld'];
 export const TONES=['alert','calm','success','info'];
 export const CAPTION_STYLES=['bold','box'];
@@ -41,7 +49,7 @@ export const DEFAULT_PROJECT={
     {id:'Ren',name:'Ren',kind:'human',voice:'am_michael',look:{...LOOK_DEFAULTS,hairStyle:'chunky',eyeStyle:'classic',glasses:'round',skin:'#c78a65',hair:'#292026',eyes:'#211b23',top:'#8364c5',accent:'#b59ad8',bottom:'#19222d'}},
     {id:'Mica',name:'Mica',kind:'bot',voice:'af_heart',look:{...LOOK_DEFAULTS,top:'#ee704e',accent:'#493d39',screen:'#94f3d4'}}
   ],
-  characterStyle:'smooth',filmLook:'studio',cameraFlow:'cuts',warmth:1,dof:true,music:true,sfx:true,musicVolume:.6,captions:true,captionStyle:'bold',intro:true,
+  characterStyle:'smooth',filmLook:'studio',cameraFlow:'cuts',cameraStyle:'cinematic',set:'desk',timeOfDay:'golden',world:{...WORLD_DEFAULTS},warmth:1,dof:true,music:true,sfx:true,musicVolume:.6,captions:true,captionStyle:'bold',intro:true,
   endTitle:'Made. Together.',endSub:'A little imagination goes a long way.',
   voiceEngine:'kokoro',voiceData:null,musicData:null,
   cues:[
@@ -72,27 +80,47 @@ export function partnerOf(p,i){
   for(let j=i+1;j<p.cues.length;j++)if(p.cues[j].speaker!==c.speaker)return p.cues[j].speaker;
   return ids.find(id=>id!==c.speaker)||c.speaker;
 }
+// Director: shot/reverse-shot coverage on one side of the line, close-ups on emotional peaks, gesture-aware
+// sizes, a held shot instead of a jump cut, two-shots on silences, reaction shots in the dynamic style.
 export function planShots(p){
   if(plans.has(p))return plans.get(p);
-  const segs=[],turns={};let prev=null,prevSeg=null;
+  const style=p.cameraStyle||'cinematic',segs=[],turns={},n=p.cues.length,group=p.cast.length>=3;let prev=null;
+  const widen=(shot,need)=>need&&SHOT_SIZE[need]>SHOT_SIZE[shot]?need:shot;
+  const push=seg=>{const last=segs.at(-1);
+    if(last&&last.shot===seg.shot&&last.subject===seg.subject&&seg.shot!=='custom'&&seg.shot!=='screen')return;     // hold: no jump cut
+    if(last&&seg.start-last.start<.8&&segs.length>1){segs[segs.length-1]={...seg,start:last.start};return;}           // too short: replace
+    segs.push(seg);};
   p.cues.forEach((c,i)=>{
-    const other=partnerOf(p,i);
-    if(prev&&c.start-prev.end>1.2)segs.push({start:prev.end+.2,shot:'two',subject:prev.speaker,other:c.speaker,cue:null});
+    const other=partnerOf(p,i),dur=c.end-c.start;
+    if(prev&&c.start-prev.end>(style==='calm'?.8:1.2))push({start:prev.end+.2,shot:group?'wide':'two',subject:prev.speaker,other:c.speaker,cue:null});
     let shot=c.shot,subject=c.subject||c.speaker;
     if(shot==='auto'){
-      subject=c.speaker;
-      if(i===0)shot='wide';
-      else if(c.emotion==='angry'||c.emotion==='surprised')shot='cu';
-      else if(prev&&c.speaker!==prev.speaker){turns[c.speaker]=(turns[c.speaker]||0)+1;shot=turns[c.speaker]%2?'ots':'single';}
-      else shot=prevSeg?.shot==='single'&&prevSeg.subject===subject?'cu':'single';
+      subject=c.speaker;const changed=prev&&c.speaker!==prev.speaker,last=segs.at(-1);
+      if(i===0)shot=group?'wide':'two';
+      else if(c.emotion==='angry'||c.emotion==='surprised')shot=style==='dynamic'&&c.emotion==='surprised'?'ecu':'cu';
+      else if(changed){turns[c.speaker]=(turns[c.speaker]||0)+1;shot=style==='calm'?'single':style==='dynamic'?(turns[c.speaker]%2?'ots':'cu'):(turns[c.speaker]%2?'ots':'single');}
+      else if(style==='calm')shot=last?.subject===subject?last.shot:'single';
+      else shot=last?.subject===subject&&last.shot==='single'?'cu':'single';
+      if(i===n-1&&i>0&&['happy','idea'].includes(c.emotion)&&style!=='calm')shot='cu';
+      shot=widen(shot,ACTION_FRAMING[c.action]);
+      if(shot==='ots'&&SHOT_SIZE[ACTION_FRAMING[c.action]]>SHOT_SIZE.single)shot='ms';
     }
     const cut=i===0?0:Math.max(prev.end,c.start-.12),seg={start:cut,shot,subject,other,cam:c.shot==='custom'?c.cam:undefined,cue:c.id};
-    if(c.screen&&c.shot==='auto'&&i>0&&c.end-c.start>1.5){segs.push({start:cut,shot:'screen',subject,other,cue:c.id});segs.push({...seg,start:c.start+Math.min(1.1,(c.end-c.start)*.45)});}
-    else segs.push(seg);
-    prev=c;prevSeg=segs.at(-1);
+    if(c.screen&&c.shot==='auto'&&i>0&&dur>1.5){push({start:cut,shot:'screen',subject,other,cue:c.id});push({...seg,start:c.start+Math.min(1.1,dur*.45)});}
+    else push(seg);
+    // Dynamic style: a reaction shot of the listener in the middle of long lines.
+    if(style==='dynamic'&&c.shot==='auto'&&dur>4.2&&other!==c.speaker){push({start:c.start+dur*.5,shot:'cu',subject:other,other:c.speaker,cue:c.id,reaction:true});push({...seg,start:c.start+dur*.5+1.2});}
+    prev=c;
   });
-  if(!segs.length)segs.push({start:0,shot:'wide',subject:p.cast[0].id,other:p.cast[1]?.id||p.cast[0].id,cue:null});
+  if(!segs.length)segs.push({start:0,shot:'two',subject:p.cast[0].id,other:p.cast[1]?.id||p.cast[0].id,cue:null});
   segs[0].start=0;plans.set(p,segs);return segs;
+}
+// Who each character turns toward: speakers face their partner, listeners face the speaker; blended across lines.
+export function stanceAt(p,t,id){
+  const at=i=>{const c=p.cues[i];if(!c)return null;return c.speaker===id?partnerOf(p,i):c.speaker;};
+  let i=-1;for(let j=0;j<p.cues.length;j++){if(p.cues[j].start-.3<=t)i=j;else break;}
+  if(i<0)return {to:at(0),from:at(0),k:1};
+  return {to:at(i),from:at(i-1)??at(i),k:smooth((t-p.cues[i].start+.3)/.7)};
 }
 export function shotAt(p,t){const segs=planShots(p);let i=0;while(i+1<segs.length&&segs[i+1].start<=t)i++;return {...segs[i],index:i,end:segs[i+1]?.start??p.duration};}
 
@@ -163,7 +191,7 @@ export function parseScript(text,p){
   text.split(/\r?\n/).forEach((raw,n)=>{
     const line=raw.trim();if(!line)return;
     let m;
-    if((m=line.match(/^#\s*(title|handle)\s*:\s*(.+)$/i))){meta[m[1].toLowerCase()]=m[2].trim();return;}
+    if((m=line.match(/^#\s*(title|handle|set|time|camera)\s*:\s*(.+)$/i))){const k=m[1].toLowerCase();meta[k]=['title','handle'].includes(k)?m[2].trim():m[2].trim().toLowerCase();return;}
     if(line.startsWith('#'))return;
     if((m=line.match(/^>>\s*screen\s*(\w+)?\s*(\+progress)?\s*:\s*(.*)$/i))){
       const [kicker='',title='',sub='']=m[3].split('|').map(s=>s.trim());
@@ -197,7 +225,7 @@ export function estimateTimes(cues,lead=.8){
   return cues.map(c=>{const words=c.text.split(/\s+/).length,len=Math.max(1.1,words*.37+.35),out={...c,start:round(t),end:round(t+len)};delete out.visemes;delete out.words;t+=len+(c.pause??.45);return out;});
 }
 export function toScript(p){
-  const out=[`# title: ${p.title}`,`# handle: ${p.handle}`,''],name=id=>p.cast.find(c=>c.id===id)?.name||id;
+  const out=[`# title: ${p.title}`,`# handle: ${p.handle}`,`# set: ${p.set}`,...(p.set==='forest'?[`# time: ${p.timeOfDay}`]:[]),`# camera: ${p.cameraStyle}`,''],name=id=>p.cast.find(c=>c.id===id)?.name||id;
   for(const c of p.cues){
     if(c.screen)out.push(`>> SCREEN ${c.screen.tone}${c.screen.progress?' +progress':''}: ${c.screen.kicker} | ${c.screen.title} | ${c.screen.sub}`);
     const cam=c.shot==='custom'?[`cam=${c.cam.yaw}/${c.cam.pitch}/${c.cam.dist}/${c.cam.lens}`,c.cam.move!=='auto'&&`move=${c.cam.move}`]:[c.shot!=='auto'&&(c.subject&&c.subject!==c.speaker?`${c.shot}:${name(c.subject).toLowerCase()}`:c.shot)];
@@ -209,6 +237,11 @@ export function toScript(p){
 const round=n=>Math.round(n*1000)/1000;
 
 const COLOR=/^#[a-f\d]{6}$/i,VOICE=/^[a-z]{2}_[a-z]+$/,ID=/^[A-Za-z][A-Za-z0-9_]{0,15}$/;
+export function normalizeWorld(raw={}){
+  const w={...WORLD_DEFAULTS,...(raw||{})},id=v=>typeof v==='string'&&/^[a-z0-9-]{6,40}$/.test(v)?v:null,num=(v,lo,hi,d)=>Number.isFinite(Number(v))?clamp(Number(v),lo,hi):d;
+  return {foliage:num(w.foliage,0,1.6,1),wind:num(w.wind,0,2.5,1),particles:Array.isArray(w.particles)?[...new Set(w.particles.filter(x=>WORLD_PARTICLES.includes(x)))]:null,sign:w.sign!==false,campfire:w.campfire!==false,
+    backdrop:id(w.backdrop),scene:id(w.scene),scale:num(w.scale,.05,50,2),turn:num(w.turn,-180,180,0),panoHeight:num(w.panoHeight,.5,40,4),offsetX:num(w.offsetX,-100,100,0),offsetY:num(w.offsetY,-50,50,0),offsetZ:num(w.offsetZ,-100,100,0)};
+}
 export function normalizeLook(raw={}){
   const a={...LOOK_DEFAULTS,...raw};
   for(const [k,[lo,hi]] of Object.entries(LOOK_RANGES)){const v=Number(a[k]);if(!Number.isFinite(v))throw Error(`Invalid character ${k}.`);a[k]=Math.round(clamp(v,lo,hi)*100)/100;}
@@ -255,7 +288,7 @@ export function validateProject(raw){
   for(const k of ['music','sfx','captions','dof','intro'])p[k]=Boolean(p[k]);
   if(!CAPTION_STYLES.includes(p.captionStyle))p.captionStyle='bold';
   if(!CHARACTER_STYLES.includes(p.characterStyle))p.characterStyle='smooth';
-  if(!FILM_LOOK_IDS.includes(p.filmLook))p.filmLook='studio';if(!['cuts','one-take'].includes(p.cameraFlow))p.cameraFlow='cuts';
+  if(!FILM_LOOK_IDS.includes(p.filmLook))p.filmLook='studio';if(!['cuts','one-take'].includes(p.cameraFlow))p.cameraFlow='cuts';if(!CAMERA_STYLES.includes(p.cameraStyle))p.cameraStyle='cinematic';if(!SETS.includes(p.set))p.set='desk';p.world=normalizeWorld(p.world);if(!TIMES_OF_DAY.includes(p.timeOfDay))p.timeOfDay='golden';
   p.endTitle=String(p.endTitle||'').slice(0,40);p.endSub=String(p.endSub||'').slice(0,80);
   if(!['kokoro','chatterbox'].includes(p.voiceEngine))p.voiceEngine='kokoro';
   for(const [k,limit] of [['voiceData',16e6],['musicData',14e6]])

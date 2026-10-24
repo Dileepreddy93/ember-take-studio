@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {DEFAULT_PROJECT,clone,validateProject,poseAt,mouthAt,faceAt,actionAt,screenAt,planShots,parseScript,toScript,newCastMember,beatAt,VISEMES,FACES,MAX_CAST} from '../dist/timeline.js';
+import {DEFAULT_PROJECT,clone,validateProject,poseAt,mouthAt,faceAt,actionAt,screenAt,planShots,parseScript,toScript,newCastMember,beatAt,stanceAt,VISEMES,FACES,MAX_CAST} from '../dist/timeline.js';
 import {makeSound,RATE} from '../audio.js';
 
 test('character looks survive validation and reject unsupported styles',()=>{
@@ -39,16 +39,29 @@ test('seek backwards and direct seek produce identical performance',()=>{
  assert.deepEqual(poseAt(p,15.25),expected);
  assert.equal(expected.cue.speaker,'Mica');
 });
-test('auto camera opens wide, cuts to the speaker and inserts the monitor on screen changes',()=>{
+test('director: establishing two-shot, gesture-aware sizes, monitor inserts, valid subjects',()=>{
  const p=validateProject(clone(DEFAULT_PROJECT)),segs=planShots(p);
- assert.equal(segs[0].shot,'wide');assert.equal(segs[0].start,0);
- const s=poseAt(p,5.5);assert.equal(s.shot,'cu');assert.equal(s.subject,'Ren');
+ assert.equal(segs[0].shot,'two');assert.equal(segs[0].start,0);
+ const s=poseAt(p,5.5);assert.equal(s.shot,'ms','pointing at the monitor needs a waist-up shot');assert.equal(s.subject,'Ren');
  assert.equal(poseAt(p,14.6).shot,'screen');assert.equal(poseAt(p,16).subject,'Mica');
- for(let i=1;i<segs.length;i++)assert.ok(segs[i].start>=segs[i-1].start);
+ for(let i=1;i<segs.length;i++){assert.ok(segs[i].start>=segs[i-1].start);assert.ok(!(segs[i].shot===segs[i-1].shot&&segs[i].subject===segs[i-1].subject),'no jump cut between identical shots');}
  for(const seg of segs)assert.ok(p.cast.some(c=>c.id===seg.subject)&&p.cast.some(c=>c.id===seg.other));
 });
+test('director styles: calm holds singles, dynamic adds reaction shots, groups open wide',()=>{
+ const base=clone(DEFAULT_PROJECT);base.cues.forEach(c=>{c.action='none';c.emotion='neutral';delete c.screen;});
+ const calm=planShots(validateProject({...base,cameraStyle:'calm'})),cine=planShots(validateProject({...base,cameraStyle:'cinematic'}));
+ assert.ok(!calm.some(s=>s.shot==='ots'));assert.ok(cine.some(s=>s.shot==='ots'));
+ const long=clone(base);long.cues[2].end=long.cues[2].start+5;long.cues=long.cues.filter((c,i)=>i<3||c.start>=long.cues[2].end);
+ assert.ok(planShots(validateProject({...long,cameraStyle:'dynamic'})).some(s=>s.reaction));
+ const g=validateProject(clone(DEFAULT_PROJECT));g.cast.push(newCastMember(g,'creature'));assert.equal(planShots(validateProject(g))[0].shot,'wide');
+ const jump=clone(base);jump.cues[1].action='jump';assert.equal(poseAt(validateProject(jump),5.5).shot,'fs');
+});
+test('characters turn toward their conversation partner',()=>{
+ const p=validateProject(clone(DEFAULT_PROJECT)),a=stanceAt(p,8.5,'Ren'),b=stanceAt(p,8.5,'Mica');
+ assert.equal(a.to,'Mica');assert.equal(b.to,'Ren');assert.ok(a.k>0&&a.k<=1);
+});
 test('explicit camera choice wins over the planner',()=>{
- const p=clone(DEFAULT_PROJECT);p.cues[1].shot='two';assert.equal(poseAt(validateProject(p),5.5).shot,'two');
+ const p=clone(DEFAULT_PROJECT);p.cues[1].shot='cu';assert.equal(poseAt(validateProject(p),5.5).shot,'cu');
 });
 test('corrupt times, overlapping lines, unknown tags and oversized captions rejected',()=>{
  for(const mutate of [p=>p.cues[1].start=3,p=>p.duration=0,p=>p.cues[0].end=31,p=>p.cues[0].text='a'.repeat(161),p=>p.cast[0].look.top='javascript:bad',p=>p.cues[0].action='moonwalk',p=>p.cues[0].screen.tone='loud',p=>p.cues[0].words=[[0,'x']]]){

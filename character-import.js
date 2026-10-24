@@ -4,7 +4,7 @@
 export const IMPORT_RULES={
   formats:['.glb','.vrm'],maxBytes:40e6,maxTriangles:300000,warnTriangles:120000,maxImages:24,
   // Extensions three.js decodes here without extra decoders.
-  supportedExtensions:['KHR_materials_unlit','KHR_materials_emissive_strength','KHR_materials_clearcoat','KHR_materials_sheen','KHR_materials_transmission','KHR_materials_ior','KHR_materials_specular','KHR_materials_volume','KHR_materials_iridescence','KHR_materials_anisotropy','KHR_texture_transform','KHR_mesh_quantization','KHR_lights_punctual','EXT_meshopt_compression','VRM','VRMC_vrm','VRMC_springBone','VRMC_materials_mtoon','VRMC_node_constraint','KHR_materials_variants'],
+  supportedExtensions:['KHR_materials_unlit','KHR_materials_emissive_strength','KHR_materials_clearcoat','KHR_materials_sheen','KHR_materials_transmission','KHR_materials_ior','KHR_materials_specular','KHR_materials_volume','KHR_materials_iridescence','KHR_materials_anisotropy','KHR_texture_transform','KHR_mesh_quantization','KHR_lights_punctual','EXT_meshopt_compression','VRM','VRMC_vrm','VRMC_springBone','VRMC_materials_mtoon','VRMC_node_constraint','KHR_materials_variants','KHR_draco_mesh_compression','KHR_texture_basisu','EXT_texture_webp','KHR_materials_dispersion'],
   required:['hips','spine','neck','head','leftUpperArm','leftLowerArm','leftHand','rightUpperArm','rightLowerArm','rightHand'],
   recommended:['chest','leftUpperLeg','leftLowerLeg','leftFoot','rightUpperLeg','rightLowerLeg','rightFoot']
 };
@@ -73,7 +73,7 @@ export function validateCharacter(buffer,filename=''){
   let json;try{json=readGlb(buffer);}catch(e){errors.push(e.message);return report;}
   report.vrm=json.extensions?.VRMC_vrm?'1.0':json.extensions?.VRM?'0.x':null;if(report.vrm)report.format='vrm';
   const unsupported=(json.extensionsRequired||json.extensionsUsed||[]).filter(e=>!IMPORT_RULES.supportedExtensions.includes(e));
-  if(unsupported.length)(json.extensionsRequired||[]).some(e=>unsupported.includes(e))?errors.push(`Uses compression this studio cannot decode: ${unsupported.join(', ')}. Re-export without Draco/Basis (KTX2) compression.`):warnings.push(`Ignores these optional extensions: ${unsupported.join(', ')}.`);
+  if(unsupported.length)(json.extensionsRequired||[]).some(e=>unsupported.includes(e))?errors.push(`Uses compression this studio cannot decode: ${unsupported.join(', ')}. Re-export it without that extension.`):warnings.push(`Ignores these optional extensions: ${unsupported.join(', ')}.`);
   for(const m of json.meshes||[]){report.meshes++;for(const p of m.primitives||[]){const acc=json.accessors?.[p.indices??p.attributes?.POSITION];if(acc)report.triangles+=Math.round(p.indices!==undefined?acc.count/3:acc.count/3);}}
   report.skins=(json.skins||[]).length;
   if(!report.meshes)errors.push('The file has no meshes.');
@@ -91,5 +91,43 @@ export function validateCharacter(buffer,filename=''){
   if(report.face.lipSync==='none'){if(report.bones.jaw){report.face.lipSync='jaw';warnings.push('No mouth shapes found: lip sync will move the jaw bone only.');}else warnings.push('No mouth shapes (visemes, ARKit jawOpen or VRM aa/oh) and no jaw bone: the mouth will not move. Add shape keys in Blender for lip sync.');}
   if(!report.face.blink)warnings.push('No blink shape (eyeBlink / Fcl_EYE_Close / VRM blink): the eyes will not blink.');
   if(!report.face.emotions.length)warnings.push('No expression shapes: feelings show through body language and head pose only.');
+  report.ok=!errors.length;return report;
+}
+
+// Worlds: imported 3D scenes (no skeleton needed) and 360° backgrounds.
+export const WORLD_RULES={formats:['.glb'],maxBytes:80e6,maxTriangles:2000000,warnTriangles:800000,backdropFormats:['.jpg','.jpeg','.png','.hdr'],maxBackdropBytes:60e6};
+export function validateWorld(buffer,filename=''){
+  const errors=[],warnings=[],ext=(filename.match(/\.[a-z0-9]+$/i)?.[0]||'').toLowerCase(),report={ok:false,kind:'world',errors,warnings,format:'glb',sizeMB:Math.round(buffer.byteLength/1e5)/10,triangles:0,meshes:0,animations:0,lights:0};
+  if(!WORLD_RULES.formats.includes(ext))errors.push(`Use a .glb file for a 3D world (got "${ext||'no extension'}"). Blender: File → Export → glTF 2.0 (.glb).`);
+  if(buffer.byteLength>WORLD_RULES.maxBytes)errors.push(`The file is ${report.sizeMB} MB; the limit is ${WORLD_RULES.maxBytes/1e6} MB. Reduce textures to 2048 px or use Draco compression.`);
+  let json;try{json=readGlb(buffer);}catch(e){errors.push(e.message);return report;}
+  const unsupported=(json.extensionsRequired||[]).filter(e=>!IMPORT_RULES.supportedExtensions.includes(e));if(unsupported.length)errors.push(`Uses extensions this studio cannot read: ${unsupported.join(', ')}.`);
+  for(const m of json.meshes||[]){report.meshes++;for(const pr of m.primitives||[]){const acc=json.accessors?.[pr.indices??pr.attributes?.POSITION];if(acc)report.triangles+=Math.round(acc.count/3);}}
+  report.animations=(json.animations||[]).length;report.lights=json.extensions?.KHR_lights_punctual?.lights?.length||0;
+  if(!report.meshes)errors.push('The file has no meshes.');
+  if(report.triangles>WORLD_RULES.maxTriangles)errors.push(`${report.triangles.toLocaleString()} triangles is too heavy for a world (limit ${WORLD_RULES.maxTriangles.toLocaleString()}).`);
+  else if(report.triangles>WORLD_RULES.warnTriangles)warnings.push(`${report.triangles.toLocaleString()} triangles: renders more slowly.`);
+  if(report.animations)warnings.push(`${report.animations} animation${report.animations>1?'s':''} will loop on the film clock.`);
+  if(json.skins?.length)warnings.push('This model has a skeleton, so it may be a character. Import it from the Cast tab if it should act and speak.');
+  report.ok=!errors.length;return report;
+}
+// Reads image size from the file header (PNG, JPEG, Radiance HDR) without decoding pixels.
+export function imageSize(bytes){
+  const b=bytes instanceof Uint8Array?bytes:new Uint8Array(bytes),v=new DataView(b.buffer,b.byteOffset,b.byteLength);
+  if(b[0]===0x89&&b[1]===0x50)return {type:'png',width:v.getUint32(16),height:v.getUint32(20)};
+  if(b[0]===0xFF&&b[1]===0xD8){let i=2;while(i<b.length-9){if(b[i]!==0xFF){i++;continue;}const m=b[i+1],len=v.getUint16(i+2);if(m>=0xC0&&m<=0xCF&&![0xC4,0xC8,0xCC].includes(m))return {type:'jpeg',height:v.getUint16(i+5),width:v.getUint16(i+7)};i+=2+len;}}
+  const head=new TextDecoder().decode(b.subarray(0,Math.min(4096,b.length)));if(/^#\?(RADIANCE|RGBE)/.test(head)){const m=head.match(/-Y (\d+) \+X (\d+)/);if(m)return {type:'hdr',width:Number(m[2]),height:Number(m[1])};}
+  return null;
+}
+export function validateBackdrop(buffer,filename=''){
+  const errors=[],warnings=[],ext=(filename.match(/\.[a-z0-9]+$/i)?.[0]||'').toLowerCase(),report={ok:false,kind:'backdrop',errors,warnings,format:ext.slice(1),sizeMB:Math.round(buffer.byteLength/1e5)/10,width:0,height:0};
+  if(!WORLD_RULES.backdropFormats.includes(ext))errors.push(`Use a .jpg, .png or .hdr 360° image (got "${ext||'no extension'}").`);
+  if(buffer.byteLength>WORLD_RULES.maxBackdropBytes)errors.push(`The image is ${report.sizeMB} MB; the limit is ${WORLD_RULES.maxBackdropBytes/1e6} MB.`);
+  const size=imageSize(buffer);if(!size){errors.push('Could not read the image. Save it as a standard JPEG, PNG or Radiance .hdr.');return report;}
+  Object.assign(report,{width:size.width,height:size.height,format:size.type});const ratio=size.width/size.height;
+  if(Math.abs(ratio-2)>.05)errors.push(`This image is ${size.width}×${size.height}. A 360° background must be equirectangular, twice as wide as tall (2:1). Poly Haven HDRIs and phone 360° photos are.`);
+  if(size.width<2048)warnings.push('Under 2048 px wide: the background will look soft. 4096 px or more is best.');
+  if(size.width>8192)warnings.push('Over 8192 px wide: uses a lot of memory; 4096–8192 px is plenty.');
+  if(size.type!=='hdr')warnings.push('JPEG/PNG backgrounds light the scene less realistically than .hdr files.');
   report.ok=!errors.length;return report;
 }

@@ -21,6 +21,9 @@ To check framing before a full render, render stills:
 ```
 # title: Reply All
 # handle: @embertake
+# set: forest          (desk, forest, meadow, snow; custom worlds are chosen in the World tab)
+# time: golden         (morning, golden, night)
+# camera: cinematic    (cinematic, calm, dynamic)
 >> SCREEN alert: INBOX | 1 NEW MESSAGE | TO: THE ENTIRE COMPANY
 REN [surprised, point]: Wait. Who sent an email to the entire company?
 MICA [neutral, think, pause=0.6]: You did. Four minutes ago.
@@ -32,7 +35,7 @@ MICA [neutral, think, pause=0.6]: You did. Four minutes ago.
 - Emotions: neutral, happy, sad, angry, surprised, worried, curious, idea.
 - Actions: none, explain, wave, point, point-screen, point-other, shrug, facepalm, think, cheer, clap, thumbsup,
   crossarms, handsup, nod, headshake, lean, jump, type, press, raise. Hands also beat on stressed words automatically.
-- Cameras (default auto): wide, two, single, cu, ots, screen. Add `:name` to frame someone else (`cu:mica`).
+- Cameras (default auto — leave them out unless a moment needs one): wide, two, fs, ms, single, cu, ecu, ots, screen. Add `:name` to frame someone else (`cu:mica`).
   Free 360° angle: `cam=<yaw>/<pitch>/<distance>/<lens mm>` (yaw 0 = in front of the subject, 90 = their left,
   180 = behind), optional `move=push|pull|orbit|rise|handheld|static`.
 - `>> SCREEN <alert|calm|info|success> [+progress]: KICKER | Title | Subtitle` changes the monitor on
@@ -45,6 +48,7 @@ MICA [neutral, think, pause=0.6]: You did. Four minutes ago.
 - `character-import.js` — pure GLB/VRM reader, humanoid bone mapping, face-shape detection and import rules (used by the server and tests).
 - `imported.js` — imported characters: scaling/facing, world-space IK on their bones, morph-target lip sync and emotions.
 - `library/` — the character library (imported models + saved presets), managed through `/api/library` in `server.mjs`.
+- `worlds.js` — nature worlds from settings (forest/meadow/snow, time, foliage, wind, particles) and custom worlds (360° background, imported .glb scene).
 - `scene.js` — three.js set, cast layout, 360° camera presets and custom angles, post (DOF, bloom, grade), captions.
 - `audio.js` — generated score, sound effects, voice ducking.
 - `pipeline/voice.py` — Kokoro/Chatterbox voices, silence trim, word timings, Rhubarb visemes (cached in `.voice-cache`).
