@@ -1,42 +1,78 @@
-# Ember Take
+# Ember Take Studio
 
-An original, local-first 3D film studio. The sample is **The Last Connection**, a 30-second captioned conversation between Ren and Mica with an original mathematical score and sound effects. No generative AI, paid API, stock assets or model downloads are used by the application.
+Write, voice, direct and render 3D animated vertical reels on your own computer. Every frame is drawn
+by code (three.js), voices and lip sync are generated locally, and the audio is mastered for social
+platforms. No accounts, credits, watermarks or paid services.
 
-## Run the bundled studio
+## Start the studio
 
-For an immediate offline launch, extract `Ember_Take_Offline.zip` and open `OPEN_STUDIO.html` in a desktop browser. Everything needed for editing is embedded. If your browser restricts file-based video encoding, use the included frame-package converter or the localhost launcher below.
+```
+cd ~/forgestudio/studio
+npm run studio            # then open http://localhost:8765
+```
 
-For a localhost launch, install Python 3 if needed, then run `python3 start-studio.py` (Windows: double-click `start-windows.bat`). This opens http://localhost:8765. Keep the terminal open. Internet is not needed after obtaining the files and installing Python/a compatible browser. Use a current desktop Chrome or Edge for MP4 export. HTTPS or localhost is required by WebCodecs; arbitrary HTTP hosts are not sufficient.
+Keep the terminal open while you work. The header shows **Studio engine ready** when voices and
+rendering are available. Without the engine (opening `dist/index.html` directly), editing, preview
+and browser export still work, but voices and studio renders do not.
 
-## Direct a film
+## Make a reel
 
-Select a dialogue card, edit its text/timing/speaker/expression/camera, and click Apply scene changes. Cast controls edit colors, glasses, warmth, captions and duration. Drag the playhead to scrub. Orbit scene lets you inspect actual geometry; Fit camera restores the story camera. Save project downloads portable JSON; Open imports it. Undo/redo retains the last 30 edits. The scene contains one original set, two characters, four camera presets and four expression modes.
+1. **Script** (header button): paste or write the episode. *Copy AI writer prompt* gives Claude,
+   ChatGPT or Gemini everything they need to write one in the right format.
+2. **Voice tab → Generate voices & lip sync.** *Fast* (Kokoro) takes seconds a line; *Expressive*
+   (Chatterbox) acts out each line's feeling and takes longer.
+3. **Scene tab:** adjust any line's feeling, action, camera or monitor screen. Change text or feeling,
+   then generate voices again (unchanged lines are cached).
+4. **Cast / Film tabs:** names, colours, voices, your @handle, captions, end card, music.
+5. **Export film → Render with the studio engine.** 1080 × 1920, 30 fps, about 14 Mbps, −14 LUFS.
+   Renders are kept in `renders/` and listed in the export dialog.
 
-Sound imports one continuous voice track at film time zero, up to 10 MB. Adjust dialogue timings to match it. The default film has no spoken human dialogue; captions carry the conversation. Character sounds are deliberately synthetic. This release does not provide text-to-speech or phoneme alignment.
+Or from the terminal, script to finished reel in one command:
 
-When WebCodecs is unavailable, export creates a ZIP of native-resolution JPEG frames, stereo WAV, the project and an included Python converter. Install free FFmpeg and run `python3 convert_video.py` after extracting it. This route also works on ordinary HTTP preview hosts.
+```
+npm run episode -- ../episodes/reply_all.script.txt            # add --engine=chatterbox for expressive voices
+```
 
-Export renders every frame at the selected native resolution (540, 720 or 1080 pixels wide), at 30 fps. Audio and video are encoded locally, then muxed into an MP4. Depending on browser support, the selected codecs are AVC or VP9 and AAC or Opus. On devices without WebGL, the same geometry and animation use a software rasterizer with per-pixel depth, perspective-correct textures and a depth-focus treatment. This path has simpler illumination than the accelerated renderer and may play slowly; offline export preserves every requested frame. Export progress and cancellation are available. Memory depends on scene and encoded output size; duration is limited to 60 seconds.
+## Script format
 
-The sample's environmental story (offline screen, render progress, button and end card) is authored for its 30-second arc. Editing dialogue does not automatically invent new sets, plots or environment choreography.
+```
+# title: Reply All
+# handle: @yourname
+>> SCREEN alert: INBOX | 1 NEW MESSAGE | TO: THE ENTIRE COMPANY
+REN [surprised, point]: Wait. Who sent an email to the entire company?
+MICA [neutral, think, pause=0.6]: You did. Four minutes ago.
+```
+
+| Tag | Values |
+|---|---|
+| Feeling | neutral, happy, sad, angry, surprised, worried, curious, idea |
+| Action | none, wave, point, shrug, facepalm, think, cheer, nod, headshake, lean, jump, type, press, raise |
+| Camera (default auto) | wide, two, ren, mica, ren-cu, mica-cu, ren-ots, mica-ots, screen |
+| Pause | `pause=0.8` seconds of silence after the line |
+| Monitor | `>> SCREEN alert|calm|info|success [+progress]: KICKER | Title | Subtitle` before a line |
+
+The automatic camera opens wide, cuts to the speaker, alternates over-the-shoulder and singles,
+punches into close-ups on angry and surprised lines, inserts the monitor when it changes, and holds a
+two-shot on long silences.
+
+## What runs where
+
+| Part | Tool | Licence |
+|---|---|---|
+| 3D, characters, camera, captions | three.js in headless Chrome (GPU) | MIT |
+| Fast voices | Kokoro-82M | Apache-2.0 |
+| Expressive voices | Chatterbox (clones each character's Kokoro voice) | MIT |
+| Lip sync | Rhubarb Lip Sync | MIT |
+| Mix, loudness, encoding | ffmpeg | LGPL/GPL |
+
+All of these allow commercial use, so finished reels can be sold to clients. Only use music you have
+the rights to (your own, or royalty-free libraries such as the YouTube Audio Library).
 
 ## Develop
 
-Node 22+ is recommended. `npm ci`, `npm run build`, `npm test`. `npm run package:offline` rebuilds the portable studio and source ZIP.
+`npm test` runs the timeline, script, camera, face and audio tests. `CLAUDE.md` explains the layout
+and how Claude Code can write and render episodes. Stills for quick framing checks:
+`node scripts/render-chrome.mjs --project=film.ember.json --out=/tmp/stills --width=540 --stills=2,5,9`.
+`--cpu` renders without the GPU.
 
-For a checkpointed command-line render, install free FFmpeg, then run `npm run render -- --out=./renders/sample`. It creates 900 native Full HD frames and `film.mp4` for the default film. For your own saved project, add `--project=./My_Film.ember.json`. Embedded imported audio is supported; `--voice=./recording.wav` overrides it. `--width=540` or `--width=720` makes a smaller render. Repeating the same command resumes completed frames; source, project and font changes require a fresh output folder. The renderer needs installed desktop fonts; on Linux it uses free DejaVu substitutes when Arial/Georgia are absent.
-
-- `scene.js`: original procedural geometry, rig, animation, camera and screen.
-- `software-renderer.js`: CPU triangle rasterizer and depth treatment.
-- `dist/timeline.js`: portable scene document, validation and absolute-time evaluation.
-- `app.js`: editing, local storage, audio import and export UI.
-- `audio.js`: original deterministic synthesized score and WAV helper.
-- `exporter.js`: fixed-frame WebCodecs rendering and MP4 muxing.
-
-The application contains no external font, asset or service calls. Automatic local saving is subject to browser storage limits; Save project keeps larger voice-containing projects portable. Local project files contain imported voice audio, so share them deliberately.
-
-## Licensing and scope
-
-Original source and scene assets: MIT, copyright 2026 Ember Take contributors. Three.js, mp4-muxer, fflate, @napi-rs/canvas and esbuild: MIT. Notices are included in THIRD_PARTY_NOTICES.txt. No vendor's paid engine, character meshes, prompts or branding are included.
-
-This is an independently built studio, not a recovered copy of either researched vendor's software. Quality equivalence is not a certified measurement.
+Original source and scene assets: MIT, copyright 2026 Ember Take contributors.
