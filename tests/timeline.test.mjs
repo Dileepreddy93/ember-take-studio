@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {DEFAULT_PROJECT,clone,validateProject,poseAt} from '../dist/timeline.js';
+import {DEFAULT_PROJECT,clone,validateProject,poseAt,mouthAt,VISEMES} from '../dist/timeline.js';
 import {makeSound,RATE} from '../audio.js';
 
 test('sample project survives portable JSON save and reopen',()=>{
@@ -30,4 +30,12 @@ test('soundtrack is finite, stereo, bounded and matches frame duration',async()=
 });
 test('sound disabled produces silence without imported voice',async()=>{
  const a=await makeSound({...DEFAULT_PROJECT,duration:5,music:false});assert.ok(a[0].every(x=>x===0));
+});
+test('lip sync follows the speaking line and rests the listener',()=>{
+ const p=clone(DEFAULT_PROJECT);p.cues[0].visemes=[[0,'X'],[.2,'D'],[.6,'A']];const v=validateProject(p);
+ assert.ok(Math.abs(mouthAt(v,1.2+.5,'Ren').open-VISEMES.D.open)<1e-9);
+ assert.ok(Math.abs(mouthAt(v,1.2+.9,'Ren').open-VISEMES.A.open)<1e-9);
+ assert.deepEqual(mouthAt(v,1.7,'Mica'),VISEMES.X);
+ assert.equal(mouthAt(v,4.6,'Ren'),null);
+ p.cues[0].visemes=[[0,'Q']];assert.throws(()=>validateProject(p));
 });

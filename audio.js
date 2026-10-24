@@ -17,7 +17,8 @@ export async function makeSound(project,voice=null){
       if(beat%4===0)note(start,2,ch[0]/2,.075,0,'pad');
       if(beat%2===1)note(start,.14,1,.016,.15,'noise');
     }
-    for(const cue of project.cues){if(cue.speaker==='Mica'){note(cue.start,.16,660,.055,.3);note(cue.start+.11,.2,cue.emotion==='idea'?1320:880,.045,.3);}else note(cue.start,.09,1,.028,-.2,'noise');}
+    // Synthetic character blips stand in for speech only when no voice track exists.
+    if(!voice&&!project.voiceData)for(const cue of project.cues){if(cue.speaker==='Mica'){note(cue.start,.16,660,.055,.3);note(cue.start+.11,.2,cue.emotion==='idea'?1320:880,.045,.3);}else note(cue.start,.09,1,.028,-.2,'noise');}
     // A glassy error, tactile switch and rising completion chime.
     note(4.25,.35,330,.07,-.3);note(4.48,.45,277.18,.06,-.3);note(23.8,.08,1,.1,.3,'noise');
     for(let j=0;j<4;j++)note(25.15+j*.14,2,[523.25,659.25,783.99,1046.5][j],.075,(j-1.5)*.25);

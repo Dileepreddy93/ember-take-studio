@@ -24,6 +24,19 @@ export function poseAt(p,t){
     renTalk:cue?.speaker==='Ren'?e:0,micaTalk:cue?.speaker==='Mica'?e:0,
     shot:cue?.shot||[...p.cues].reverse().find(c=>t>=c.start)?.shot||'wide'};
 }
+// Rhubarb Lip Sync mouth shapes: A closed (M/B/P) … H tongue (L), X rest.
+export const VISEMES={X:{open:0,wide:1,teeth:0},A:{open:.05,wide:.95,teeth:0},B:{open:.35,wide:1.12,teeth:1},C:{open:.62,wide:1.15,teeth:1},D:{open:1,wide:1.22,teeth:1},E:{open:.6,wide:.82,teeth:0},F:{open:.38,wide:.58,teeth:0},G:{open:.22,wide:1.04,teeth:1},H:{open:.5,wide:1.05,teeth:1}};
+const REST=VISEMES.X;
+// Returns the blended mouth for a speaker at time t, or null when the line has no lip-sync data.
+export function mouthAt(p,t,speaker){
+  const cue=cueAt(p,t);
+  if(!cue||cue.speaker!==speaker)return REST;
+  const v=cue.visemes;if(!v||!v.length)return null;
+  const local=t-cue.start;let i=-1;
+  for(let lo=0,hi=v.length-1;lo<=hi;){const mid=(lo+hi)>>1;if(v[mid][0]<=local){i=mid;lo=mid+1}else hi=mid-1;}
+  const cur=VISEMES[i<0?'X':v[i][1]],prev=VISEMES[i<1?'X':v[i-1][1]],k=i<0?1:smooth((local-v[i][0])/.07);
+  return {open:prev.open+(cur.open-prev.open)*k,wide:prev.wide+(cur.wide-prev.wide)*k,teeth:k>.5?cur.teeth:prev.teeth};
+}
 export function validateProject(raw){
   if(!raw||raw.version!==1)throw Error('This is not an Ember Take v1 project.');
   if(!Number.isFinite(raw.duration)||raw.duration<5||raw.duration>60)throw Error('Duration must be 5–60 seconds.');
@@ -42,6 +55,7 @@ export function validateProject(raw){
     if(!['happy','worried','curious','idea'].includes(c.emotion))throw Error('Unknown expression.');
     if(typeof c.text!=='string'||c.text.length>160)throw Error('Keep each caption under 160 characters.');
     const id=Number(c.id)||i+1;if(ids.has(id))throw Error('Duplicate line identifiers.');ids.add(id);
+    if(c.visemes!==undefined&&(!Array.isArray(c.visemes)||c.visemes.length>2000||!c.visemes.every(v=>Array.isArray(v)&&Number.isFinite(v[0])&&v[1] in VISEMES)))throw Error(`Line ${i+1}: invalid lip-sync data.`);
     return {...c,id,text:c.text.trim()};
   }).sort((a,b)=>a.start-b.start);
   for(let i=1;i<p.cues.length;i++)if(p.cues[i].start<p.cues[i-1].end)throw Error('Dialogue lines must not overlap.');

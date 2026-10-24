@@ -5,7 +5,7 @@ import {EffectComposer} from 'three/examples/jsm/postprocessing/EffectComposer.j
 import {RenderPass} from 'three/examples/jsm/postprocessing/RenderPass.js';
 import {UnrealBloomPass} from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import {OutputPass} from 'three/examples/jsm/postprocessing/OutputPass.js';
-import {poseAt,clamp,smooth} from './dist/timeline.js';
+import {poseAt,mouthAt,clamp,smooth} from './dist/timeline.js';
 import {SoftwareRenderer} from './software-renderer.js';
 
 const PI=Math.PI;
@@ -110,14 +110,17 @@ export class FilmScene{
     r.head.rotation.set(Math.sin(t*1.2)*.035 + (mood==='worried'?-.035:0),.17+Math.sin(t*.7)*.055,-.035+Math.sin(t*.8)*.035);
     const blink=(Math.sin(t*1.91+1.3)>.991||Math.sin(t*1.3+4)>.997)?.1:1;
     for(let i=0;i<2;i++){r.eyes[i].scale.y=blink;r.brows[i].rotation.z=(i===0?1:-1)*(mood==='worried'?.21:mood==='idea'?-.1:0);r.brows[i].position.y=.25+(mood==='curious'&&i===0?.05:0);}
-    r.mouthShape.scale.y=1+rt*(2+Math.sin(t*18)*1.7);r.mouthShape.scale.x=1+rt*.2;r.teeth.visible=mood==='happy'||rt>.3;
+    const rm=mouthAt(this.project,t,'Ren');
+    if(rm){r.mouthShape.scale.y=1+rm.open*3.8;r.mouthShape.scale.x=rm.wide+(mood==='happy'?.15:0);r.teeth.visible=Boolean(rm.teeth)||mood==='happy';}
+    else{r.mouthShape.scale.y=1+rt*(2+Math.sin(t*18)*1.7);r.mouthShape.scale.x=1+rt*.2;r.teeth.visible=mood==='happy'||rt>.3;}
     r.arms.forEach(({arm,elbow},i)=>{const s=i===0?-1:1;arm.rotation.set(-.06-rt*(.28+Math.sin(t*4+i)*.14),0,s*(.08+rt*.2));elbow.rotation.set(-.13-rt*(.38+Math.sin(t*3+i)*.16),0,0);});
     if(mood==='worried'&&rt>.1){r.arms[0].arm.rotation.z=-.55*rt;r.arms[0].elbow.rotation.x=-1.8*rt;r.arms[0].arm.rotation.x=-.42*rt;}
     if(st.t>26){r.arms[1].arm.rotation.z=-.2*st.final;r.arms[1].arm.rotation.x=-.2;r.head.rotation.z=-.07;r.head.rotation.y=.2;}
     r.legs.forEach((l,i)=>{l.rotation.x=Math.sin(t*1.4+i)*.008});
     m.body.position.y=Math.sin(t*2.8)*.025;m.body.rotation.set(0,-.14+Math.sin(t*.8)*.035,Math.sin(t*1.7)*.025);
     m.head.rotation.set(Math.sin(t*1.8)*.035,-.12+Math.sin(t*.7)*.05,mood==='curious'?.13:Math.sin(t)*.035);
-    m.eyes.forEach((e,i)=>{e.scale.y=blink*(mood==='happy'?.55:1)+(mood==='idea'?.25:0);e.rotation.z=mood==='worried'?(i?-.2:.2):0;});m.mouth.scale.x=1+mt*Math.sin(t*20)*.45;m.mouth.scale.y=1+mt*(1+Math.sin(t*16));
+    m.eyes.forEach((e,i)=>{e.scale.y=blink*(mood==='happy'?.55:1)+(mood==='idea'?.25:0);e.rotation.z=mood==='worried'?(i?-.2:.2):0;});const mm=mouthAt(this.project,t,'Mica');
+    if(mm){m.mouth.scale.x=mm.wide;m.mouth.scale.y=1+mm.open*5;}else{m.mouth.scale.x=1+mt*Math.sin(t*20)*.45;m.mouth.scale.y=1+mt*(1+Math.sin(t*16));}
     m.arms.forEach(({arm,elbow},i)=>{const s=i?1:-1;arm.rotation.set(-.15-mt*(.4+Math.sin(t*4+i)*.2),0,s*(.12+mt*.36));elbow.rotation.x=-.2-mt*.7;});
     if(st.t>14&&st.t<18.3){const e=st.energy;m.arms[1].arm.rotation.z=2.15*e;m.arms[1].elbow.rotation.x=-.6*e;m.head.rotation.z=-.07*e;}
     const tap=smooth((t-23.5)/.4)*(1-smooth((t-24.3)/.4));m.arms[1].arm.rotation.x-=tap*.9;m.arms[1].arm.rotation.z+=tap*.8;this.renderKey.position.y=.16-.08*tap;this.renderKeyLabel.position.y=.334-.08*tap;
