@@ -82,6 +82,20 @@ $('generate-voices').onclick=async()=>{
     const keepSelected=selected;voiceBuffer=null;commit({...result,cast:project.cast,voiceEngine:engine});selected=keepSelected;time=0;fillLine();render();$('voice-job').textContent=`Done. ${project.cues.length} lines voiced, film is ${project.duration} seconds. Press play.`;toast('Voices and lip sync are ready.');
   }catch(e){$('voice-job').textContent='Could not generate voices: '+e.message;}finally{btn.disabled=false;$('voice-progress').hidden=true;}
 };
+// Open dialog: recent studio renders with their projects, plus a file picker.
+async function openProjects(){
+  stop();const list=$('open-list');list.replaceChildren();let films=[];
+  if(server){try{films=(await api('/api/renders')).filter(r=>r.project);}catch{}}
+  $('open-empty').hidden=Boolean(films.length);$('open-empty').textContent=server?'No rendered films yet. Films appear here after a studio render.':'Start the studio engine (npm run studio) to see your rendered films here.';
+  list.append(...films.map(r=>{const li=document.createElement('li'),row=document.createElement('div'),info=document.createElement('div'),b=document.createElement('button'),w=document.createElement('a');
+    info.innerHTML='<b></b><small></small>';info.querySelector('b').textContent=r.title;info.querySelector('small').textContent=`${new Date(r.created).toLocaleString()} · ${r.name}`;
+    b.className='primary';b.textContent='Open';b.onclick=()=>openRender(r);w.href=r.url;w.target='_blank';w.textContent='Watch';w.className='quiet-link';row.className='open-row';row.append(info,w,b);li.append(row);return li;}));
+  $('open-dialog').showModal();
+}
+async function openRender(r){
+  try{const res=await fetch(r.project);if(!res.ok)throw Error('The project file is missing.');const p=validateProject(await res.json());selected=p.cues[0]?.id||0;castSel=p.cast[0].id;time=0;voiceBuffer=null;commit(p);$('open-dialog').close();document.querySelector('[data-tab=line]').click();toast(`Opened "${p.title}". Press play.`);}
+  catch(e){toast('Could not open this film: '+e.message);}
+}
 async function loadRenders(){
   if(!server)return;try{const list=await api('/api/renders');$('renders-box').hidden=!list.length;$('renders-list').replaceChildren(...list.slice(0,8).map(r=>{const li=document.createElement('li'),a=document.createElement('a');a.href=r.url;a.target='_blank';a.textContent=r.name.replace(/_/g,' ');const s=document.createElement('small');s.textContent=`${new Date(r.created).toLocaleString()} · ${(r.size/1e6).toFixed(1)} MB`;li.append(a,s);return li;}));}catch{}
 }
@@ -115,7 +129,9 @@ $('undo').onclick=()=>{if(!history.length)return;future.push(clone(project));res
 $('reset').onclick=()=>{selected=1;time=0;commit(clone(DEFAULT_PROJECT));toast('Sample restored. Undo brings back your edits.');};
 function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),30000);}
 const fileBase=()=>project.title.replace(/[^a-z0-9]+/gi,'_');
-$('save').onclick=()=>download(new Blob([JSON.stringify(project,null,2)],{type:'application/json'}),fileBase()+'.ember.json');$('open').onclick=()=>$('project-file').click();$('project-file').onchange=async e=>{try{const f=e.target.files[0];if(!f)return;if(f.size>32000000)throw Error('Project is too large.');const p=validateProject(JSON.parse(await f.text()));selected=p.cues[0]?.id||0;time=0;commit(p);toast('Project opened.');}catch(e){toast(e.message)}finally{$('project-file').value='';}};
+$('save').onclick=()=>download(new Blob([JSON.stringify(project,null,2)],{type:'application/json'}),fileBase()+'.ember.json');$('open').onclick=openProjects;$('open-file').onclick=()=>$('project-file').click();$('project-file').onchange=async e=>{try{const f=e.target.files[0];if(!f)return;
+  if(/^(video|audio|image)\//.test(f.type)||!/\.json$/i.test(f.name))throw Error(`"${f.name}" is not a project. Open the project.ember.json saved next to the film, or pick the film from the Open list.`);
+  if(f.size>32000000)throw Error('This project is over 32 MB. Remove the imported music or voice recording and try again.');$('open-dialog').close();const p=validateProject(JSON.parse(await f.text()));selected=p.cues[0]?.id||0;time=0;commit(p);toast('Project opened.');}catch(e){toast(e.message)}finally{$('project-file').value='';}};
 $('sound').onclick=()=>commit({...project,music:!project.music},{keepAudio:true});
 async function readAudio(input,limit){const f=input.files[0];if(!f)return null;if(f.size>limit)throw Error(`Choose audio smaller than ${limit/1e6} MB.`);if(!audioCtx)audioCtx=new AudioContext({sampleRate:RATE});const buf=await audioCtx.decodeAudioData(await f.arrayBuffer());const data=await new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(r.result);r.onerror=no;r.readAsDataURL(f)});return {buf,data};}
 $('upload-voice').onclick=()=>$('audio-file').click();$('audio-file').onchange=async e=>{try{const a=await readAudio(e.target,1e7);if(!a)return;const p=clone(project);p.cues.forEach(c=>{delete c.visemes;delete c.words;});p.voiceData=a.data;commit(p);voiceBuffer=a.buf;toast('Voice imported.');}catch(e){toast('Could not import audio: '+e.message)}finally{$('audio-file').value='';}};

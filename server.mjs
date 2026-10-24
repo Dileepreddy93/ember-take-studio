@@ -84,7 +84,7 @@ http.createServer(async(req,res)=>{
     if(path==='/api/render'&&req.method==='POST'){const b=await body(req);const width=[540,720,1080].includes(Number(b.width))?Number(b.width):1080;const job=await renderJob(b.project,width);return send(res,202,{id:job.id});}
     if(path.startsWith('/api/jobs/')){const job=jobs.get(path.split('/').pop());if(!job)return send(res,404,{error:'Unknown job'});const {log,...rest}=job;return send(res,200,{...rest,log:log.slice(-6)});}
     if(path==='/api/renders'){
-      const list=[];for(const name of await readdir(rendersDir).catch(()=>[])){const f=resolve(rendersDir,name,'film.mp4');const s=await stat(f).catch(()=>null);if(s)list.push({name,url:`/renders/${name}/film.mp4`,size:s.size,created:s.mtimeMs});}
+      const list=[];for(const name of await readdir(rendersDir).catch(()=>[])){const f=resolve(rendersDir,name,'film.mp4');const s=await stat(f).catch(()=>null);if(!s)continue;let title=name;const proj=existsSync(resolve(rendersDir,name,'project.ember.json'));if(proj){try{title=JSON.parse(await readFile(resolve(rendersDir,name,'project.ember.json'),'utf8')).title||name;}catch{}}list.push({name,title,url:`/renders/${name}/film.mp4`,project:proj?`/renders/${name}/project.ember.json`:null,size:s.size,created:s.mtimeMs});}
       return send(res,200,list.sort((a,b)=>b.created-a.created).slice(0,30));
     }
     if(path.startsWith('/renders/')){const file=resolve(rendersDir,path.slice(9));if(!inside(rendersDir,file))return send(res,403,{error:'Forbidden'});return serveFile(req,res,file);}
