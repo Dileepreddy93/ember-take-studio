@@ -1,5 +1,5 @@
-import {FilmScene} from './scene.js';
-import {DEFAULT_PROJECT,EMOTIONS,ACTIONS,SHOTS,LOOK_OPTIONS,LOOK_RANGES,MAX_CAST,clone,validateProject,planShots,parseScript,toScript,newCastMember} from './dist/timeline.js';
+import {FilmScene,FILM_LOOKS} from './scene.js';
+import {DEFAULT_PROJECT,EMOTIONS,ACTIONS,SHOTS,LOOK_OPTIONS,LOOK_RANGES,MAX_CAST,clone,validateProject,planShots,parseScript,toScript,newCastMember,normalizeLook,CAST_TEMPLATES} from './dist/timeline.js';
 import {makeSound,RATE} from './audio.js';
 import {exportFilm} from './exporter.js';
 const $=id=>document.getElementById(id),storageKey='ember-take-project-v3';
@@ -46,7 +46,7 @@ function refresh(){
   renderCards();options($('speaker'),project.cast.map(m=>[m.id,m.name]));options($('shot'),SHOTS.map(s=>[s,shotName(s)]));fillLine();renderCast();
   $('title').value=project.title;$('scrub').max=project.duration;$('duration-label').textContent=timer(project.duration);$('mid-label').textContent=timer(project.duration/2);
   const names=project.cast.map(c=>c.name);$('story-intro').textContent=`Direct ${names.length>1?names.slice(0,-1).join(', ')+' & '+names.at(-1):names[0]}’s next adventure.`;
-  for(const [id,k] of [['warmth','warmth'],['duration','duration'],['handle','handle'],['caption-style','captionStyle'],['end-title','endTitle'],['end-sub','endSub'],['music-volume','musicVolume']])$(id).value=project[k];
+  for(const [id,k] of [['character-style','characterStyle'],['film-look','filmLook'],['camera-flow','cameraFlow'],['warmth','warmth'],['duration','duration'],['handle','handle'],['caption-style','captionStyle'],['end-title','endTitle'],['end-sub','endSub'],['music-volume','musicVolume']])$(id).value=project[k];
   for(const [id,k] of [['captions','captions'],['dof','dof'],['intro','intro'],['music','music'],['sfx','sfx']])$(id).checked=project[k];
   document.querySelectorAll('input[name=engine]').forEach(r=>r.checked=r.value===project.voiceEngine);
   $('sound').textContent=project.music?'♫ Sound on':'♫ Score off';$('sound').setAttribute('aria-pressed',String(project.music));$('undo').disabled=!history.length;$('redo').disabled=!future.length;
@@ -59,7 +59,7 @@ async function decode(dataURL){return audioCtx.decodeAudioData(await(await fetch
 async function ensureAudio(){if(!audioCtx)audioCtx=new AudioContext({sampleRate:RATE});await audioCtx.resume();if(!soundBuffer){if(project.voiceData&&!voiceBuffer)voiceBuffer=await decode(project.voiceData);if(project.musicData&&!musicBuffer)musicBuffer=await decode(project.musicData);const channels=await makeSound(project,project.voiceData?voiceBuffer:null,project.musicData?musicBuffer:null);soundBuffer=audioCtx.createBuffer(2,channels[0].length,RATE);channels.forEach((a,c)=>soundBuffer.copyToChannel(a,c));}return soundBuffer;}
 async function play(){if(exporting)return;if(playing){stop();return;}if(time>=project.duration-.04)time=0;scene.setManual(false);$('orbit').setAttribute('aria-pressed','false');const gen=++audioGeneration;try{$('status').textContent='Mixing sound…';const buf=await ensureAudio();if(gen!==audioGeneration)return;audioSource=audioCtx.createBufferSource();audioSource.buffer=buf;audioSource.connect(audioCtx.destination);audioSource.start(0,time);$('status').textContent='Playing.';}catch(e){toast('Audio is unavailable: '+e.message);}playing=true;last=performance.now();$('play').textContent='Ⅱ';$('play').setAttribute('aria-label','Pause film');}
 function tick(now){requestAnimationFrame(tick);if(exporting)return;if(playing){time+=(now-last)/1000;last=now;if(time>=project.duration){time=project.duration;stop();}render();}else if(scene?.manual||scene?.focus)render();}
-options($('emotion'),EMOTIONS.map(e=>[e,EMO[e]]));options($('action'),ACTIONS.map(a=>[a,ACT[a]]));
+options($('emotion'),EMOTIONS.map(e=>[e,EMO[e]]));options($('film-look'),Object.entries(FILM_LOOKS).map(([k,v])=>[k,v.label]));options($('action'),ACTIONS.map(a=>[a,ACT[a]]));
 $('help-emotions').textContent=EMOTIONS.join(', ');$('help-actions').textContent=ACTIONS.join(', ');$('help-shots').textContent=SHOTS.filter(s=>s!=='custom').join(', ');
 function fillVoices(groups){for(const sel of document.querySelectorAll('.voice-select')){sel.replaceChildren(...Object.entries(groups).map(([label,ids])=>{const g=document.createElement('optgroup');g.label=label;g.append(...ids.map(id=>{const o=document.createElement('option');o.value=id;o.textContent=id.slice(3).replace(/^./,c=>c.toUpperCase());return o;}));return g;}));}}
 fillVoices(FALLBACK_VOICES);
@@ -70,8 +70,8 @@ async function watch(id,onUpdate){for(;;){const job=await api('/api/jobs/'+id);o
 (async()=>{
   try{server=await api('/api/status');fillVoices(server.voices);refresh();
     const e=server.engines,ok=e.kokoro&&e.rhubarb&&e.ffmpeg;$('engine-pill').textContent=ok?`● Studio engine ready${e.chatterbox?' · expressive voices':''}`:'● Studio engine incomplete';$('engine-pill').classList.add(ok?'ok':'warn');
-    const cb=document.querySelector('input[value=chatterbox]');cb.disabled=!e.chatterbox;if(!e.chatterbox)cb.closest('label').title='Expressive voices are still installing or unavailable.';loadRenders();
-  }catch{server=null;$('engine-pill').textContent='○ Browser only · run node server.mjs for voices';$('engine-pill').classList.add('off');for(const id of ['generate-voices','studio-render'])$(id).disabled=true;$('voice-job').textContent='Start the studio engine (node server.mjs) to generate voices.';$('studio-status').textContent='Start the studio engine (node server.mjs) for best-quality renders.';$('browser-export-open')?.click();document.querySelector('.browser-export').open=true;}
+    const cb=document.querySelector('input[value=chatterbox]');cb.disabled=!e.chatterbox;if(!e.chatterbox)cb.closest('label').title='Expressive voices are still installing or unavailable.';loadRenders();loadLibrary();
+  }catch{server=null;renderLibrary();$('engine-pill').textContent='○ Browser only · run node server.mjs for voices';$('engine-pill').classList.add('off');for(const id of ['generate-voices','studio-render'])$(id).disabled=true;$('voice-job').textContent='Start the studio engine (node server.mjs) to generate voices.';$('studio-status').textContent='Start the studio engine (node server.mjs) for best-quality renders.';$('browser-export-open')?.click();document.querySelector('.browser-export').open=true;}
 })();
 $('generate-voices').onclick=async()=>{
   if(!server)return;stop();const btn=$('generate-voices');btn.disabled=true;$('voice-progress').hidden=false;$('voice-progress').value=0;
@@ -121,7 +121,7 @@ $('add-line').onclick=()=>{try{const p=clone(project),start=freeSlot(p),c={id:Ma
 $('duplicate-line').onclick=()=>{try{const p=clone(project),src=p.cues.find(c=>c.id===selected),len=src.end-src.start,start=freeSlot(p,len),c={...clone(src),id:Math.max(...p.cues.map(c=>c.id))+1,start,end:start+len};delete c.visemes;delete c.words;delete c.screen;p.cues.push(c);selected=c.id;commit(p,{keepAudio:true});toast('Line duplicated at the next free moment.');}catch(e){toast(e.message)}};
 $('delete-line').onclick=()=>{commit({...project,cues:project.cues.filter(c=>c.id!==selected)},{keepAudio:true});};
 document.querySelectorAll('input[name=engine]').forEach(r=>r.onchange=()=>{try{commit({...project,voiceEngine:r.value},{keepAudio:true});}catch(e){toast(e.message)}});
-$('apply-film').onclick=()=>{try{commit({...project,handle:$('handle').value.trim(),captionStyle:$('caption-style').value,warmth:Number($('warmth').value),captions:$('captions').checked,dof:$('dof').checked,intro:$('intro').checked,endTitle:$('end-title').value.trim(),endSub:$('end-sub').value.trim(),duration:Number($('duration').value),music:$('music').checked,musicVolume:Number($('music-volume').value),sfx:$('sfx').checked},{keepAudio:true});toast('Film settings applied.');}catch(e){toast(e.message)}};
+$('apply-film').onclick=()=>{try{commit({...project,characterStyle:$('character-style').value,filmLook:$('film-look').value,cameraFlow:$('camera-flow').value,handle:$('handle').value.trim(),captionStyle:$('caption-style').value,warmth:Number($('warmth').value),captions:$('captions').checked,dof:$('dof').checked,intro:$('intro').checked,endTitle:$('end-title').value.trim(),endSub:$('end-sub').value.trim(),duration:Number($('duration').value),music:$('music').checked,musicVolume:Number($('music-volume').value),sfx:$('sfx').checked},{keepAudio:true});toast('Film settings applied.');}catch(e){toast(e.message)}};
 document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x===b));for(const t of ['line','cast','voice','film'])$('tab-'+t).hidden=t!==b.dataset.tab;stop();scene.setFocus(b.dataset.tab==='cast'?member().id:null);render();});
 $('orbit').onclick=()=>{stop();scene.setManual(!scene.manual);$('orbit').setAttribute('aria-pressed',String(scene.manual));$('status').textContent=scene.manual?'Drag to orbit. Scroll or pinch to zoom.':'Story camera active.';render();};$('frame').onclick=()=>{scene.setManual(false);$('orbit').setAttribute('aria-pressed','false');render();};
 function restore(next){project=next;stop();voiceBuffer=null;musicBuffer=null;soundBuffer=null;scene.setProject(project);persist();refresh();render();}
@@ -140,12 +140,13 @@ $('upload-music').onclick=()=>$('music-file').click();$('music-file').onchange=a
 $('remove-music').onclick=()=>commit({...project,musicData:null},{keepAudio:true});
 
 // Character creator: one editor for every kind; fields appear only where the kind uses them.
-const KIND_NAMES={human:'Human',robot:'Robot',creature:'Creature',bot:'Desk bot'};
+const KIND_NAMES={human:'Human',robot:'Robot',creature:'Creature',bot:'Desk bot',imported:'Imported 3D'};
 const FIELDS={
   human:{ranges:['height','build','head'],options:['hairStyle','facialHair','eyeStyle','topStyle','glasses','hat'],colors:['skin','hair','eyes','top','accent','bottom','shoes']},
   creature:{ranges:['height','build','head'],options:['species','eyeStyle','topStyle','glasses','hat'],colors:['skin','accent','hair','eyes','top','bottom','shoes']},
   robot:{ranges:['height','build','head'],options:['glasses','hat'],colors:['top','accent','screen','bottom','shoes']},
-  bot:{ranges:['height'],options:[],colors:['top','accent','screen']}
+  bot:{ranges:['height'],options:[],colors:['top','accent','screen']},
+  imported:{ranges:['height'],options:[],colors:[]}
 };
 const LABELS={height:'Height',build:'Build',head:'Head size',species:'Creature',hairStyle:'Hair',facialHair:'Facial hair',eyeStyle:'Eyes',topStyle:'Outfit',glasses:'Glasses',hat:'Headwear',
   skin:'Skin',hair:'Hair',eyes:'Eyes',top:'Outfit',accent:'Details',bottom:'Trousers',shoes:'Shoes',screen:'Face light'};
@@ -158,11 +159,13 @@ function renderCast(){
   if(!project.cast.some(c=>c.id===castSel))castSel=project.cast[0].id;const m=member(),list=$('cast-list');
   list.replaceChildren(...project.cast.map((c,i)=>{const b=document.createElement('button');b.className='cast-chip'+(c.id===m.id?' selected':'');const dot=document.createElement('span');dot.className='cast-dot';dot.style.background=c.kind==='bot'||c.kind==='robot'?c.look.top:c.look.top;dot.textContent=c.name[0];const t=document.createElement('span');t.innerHTML=`<b></b><small>${KIND_NAMES[c.kind]}</small>`;t.querySelector('b').textContent=c.name;b.append(dot,t);b.onclick=()=>{castSel=c.id;scene.setFocus(c.id);renderCast();render();};return b;}));
   $('add-character').disabled=project.cast.length>=MAX_CAST;$('remove-character').disabled=project.cast.length<=1;
-  $('char-name').value=m.name;$('char-kind').value=m.kind;$('char-voice').value=m.voice;
+  $('char-name').value=m.name;$('char-kind').value=m.kind;$('char-kind').disabled=m.kind==='imported';$('char-voice').value=m.voice;$('randomize').disabled=m.kind==='imported';$('save-to-library').disabled=m.kind==='imported';
   const f=FIELDS[m.kind],box=$('look-fields'),label=k=>KIND_LABELS[m.kind]?.[k]||LABELS[k];box.replaceChildren();
   const section=title=>{const h=document.createElement('div');h.className='look-section';h.textContent=title;box.append(h);};
   section('Body');for(const k of f.ranges){const [lo,hi]=LOOK_RANGES[k],r=document.createElement('input');Object.assign(r,{type:'range',min:lo,max:hi,step:.01,value:m.look[k]});r.dataset.key=k;const out=document.createElement('output');out.value=`${Math.round(m.look[k]*100)}%`;r.oninput=()=>{out.value=`${Math.round(r.value*100)}%`;previewLook();};r.onchange=commitLook;const l=field(label(k)+' ',r);l.querySelector('input').before(out);box.append(l);}
   if(f.options.length){section('Style');const grid=document.createElement('div');grid.className='look-grid';for(const k of f.options){const sel=document.createElement('select');sel.dataset.key=k;for(const o of LOOK_OPTIONS[k]){const op=document.createElement('option');op.value=o;op.textContent=OPTION_NAMES[o]||o;sel.append(op);}sel.value=m.look[k];sel.onchange=commitLook;grid.append(field(label(k),sel));}box.append(grid);}
+  if(m.kind==='imported'){const item=library.find(l=>l.id===m.asset.id),info=document.createElement('p');info.className='note';info.textContent=item?`From your library: ${item.source||item.name} · ${item.report.triangles.toLocaleString()} triangles · lip sync: ${LIP[item.report.face.lipSync]}`:'This model is not in your library on this computer.';box.append(info);
+    const flip=document.createElement('input');flip.type='checkbox';flip.checked=m.asset.flip;flip.onchange=()=>{try{commit(castWith({asset:{...m.asset,flip:flip.checked}}),{keepAudio:true});scene.setFocus(m.id);}catch(e){toast(e.message)}};const l=document.createElement('label');l.className='check-label';l.append(flip,' Turn around (if the model faces away)');box.append(l);return;}
   section('Colours');const colors=document.createElement('div');colors.className='look-grid colors';for(const k of f.colors){const c=document.createElement('input');Object.assign(c,{type:'color',value:m.look[k]});c.dataset.key=k;c.oninput=previewLook;c.onchange=commitLook;colors.append(field(label(k),c));}box.append(colors);
 }
 function readLook(){const look={...member().look};for(const el of $('look-fields').querySelectorAll('[data-key]'))look[el.dataset.key]=el.type==='range'?Number(el.value):el.value;return look;}
@@ -183,6 +186,43 @@ $('randomize').onclick=()=>{const m=member(),look={...m.look};
   Object.assign(look,{skin:m.kind==='creature'?pick(['#d9793d','#b9b2a6','#6b4a35','#e8dccb','#4d8a54']):pick(SKIN),hair:pick(HAIR),top:pick(CLOTH),accent:pick(CLOTH),bottom:pick(['#1b222c','#2b3346','#3d3328','#4a4a4a','#1f3a33']),shoes:pick(['#d6cbb5','#2b2b2b','#b5543f','#e8e2d6']),screen:pick(['#94f3d4','#7fd6ff','#ffd27a','#ff8fa3','#b9f27a'])});
   if(Math.random()<.6)look.glasses='none';if(Math.random()<.6)look.hat='none';if(Math.random()<.6)look.facialHair='none';
   try{commit(castWith({look}),{keepAudio:true});scene.setFocus(m.id);}catch(e){toast(e.message)}};
+
+// Character library: imported GLB/VRM models and saved built-in characters, reusable in any episode.
+const LIP={oculus:'visemes',arkit:'ARKit face',vroid:'VRoid mouth',vrm:'VRM expressions',generic:'mouth shape',jaw:'jaw bone',none:'none'};
+let library=[];
+async function loadLibrary(){if(!server)return;try{library=await api('/api/library');}catch{library=[];}renderLibrary();renderCast();}
+function renderLibrary(){
+  const list=$('library-list');list.replaceChildren(...library.map(item=>{const li=document.createElement('div'),info=document.createElement('div'),add=document.createElement('button'),del=document.createElement('button');li.className='library-item';
+    const r=item.report;info.innerHTML=`<b></b><small><span class="badge ${item.type}">${item.type==='imported'?'3D IMPORT':'PRESET'}</span></small>`;info.querySelector('b').textContent=item.name;
+    info.querySelector('small').append(item.type==='imported'?`${r.triangles.toLocaleString()} tris · lip sync: ${LIP[r.face.lipSync]}`:KIND_NAMES[item.member.kind]);
+    add.className='secondary';add.textContent='Add';add.onclick=()=>addFromLibrary(item);del.className='quiet';del.textContent='✕';del.title='Delete from library';
+    del.onclick=async()=>{if(!confirm(`Delete "${item.name}" from the library? Episodes that use it will show a placeholder.`))return;try{await fetch('/api/library/'+item.id,{method:'DELETE'});await loadLibrary();}catch(e){toast(e.message)}};
+    li.append(info,add,del);return li;}));
+  $('library-empty').hidden=Boolean(library.length);$('library-empty').textContent=server?'Saved and imported characters appear here, ready for any episode.':'Start the studio engine (npm run studio) to use the character library.';
+  for(const id of ['import-character','save-to-library'])$(id).disabled=!server||(id==='save-to-library'&&member().kind==='imported');
+}
+function addFromLibrary(item){
+  try{const p=clone(project);if(p.cast.length>=MAX_CAST)throw Error(`A film holds ${MAX_CAST} characters. Remove one first.`);
+    const base=newCastMember(p,item.type==='preset'?'creator':'creator');
+    const m=item.type==='preset'?{...base,name:item.member.name||base.name,kind:item.member.kind,voice:item.member.voice||base.voice,look:normalizeLook(item.member.look)}:{...base,name:item.name,kind:'imported',voice:'am_michael',look:normalizeLook({height:1}),asset:{id:item.id,flip:false}};
+    p.cast.push(m);castSel=m.id;commit(p,{keepAudio:true});scene.setFocus(m.id);render();toast(`${m.name} joined the cast.`);return m;}catch(e){toast(e.message)}
+}
+$('save-to-library').onclick=async()=>{try{const m=member();await api('/api/library/preset',{member:m});await loadLibrary();toast(`${m.name} saved to your library.`);}catch(e){toast(e.message)}};
+$('import-character').onclick=()=>$('character-file').click();
+function showReport(r,title){
+  const box=$('import-report');box.replaceChildren();$('import-title').textContent=title;
+  if(r){const stats=document.createElement('div');stats.className='stats';for(const [v,l] of [[`${r.sizeMB} MB`,r.format.toUpperCase()+(r.vrm?' '+r.vrm:'')],[r.triangles.toLocaleString(),'triangles'],[Object.keys(r.bones).length,'bones mapped'],[LIP[r.face.lipSync],'lip sync'],[r.face.blink?'yes':'no','blink'],[r.face.emotions.join(', ')||'none','expressions']]){const d=document.createElement('div');d.className='stat';d.innerHTML='<b></b><small></small>';d.querySelector('b').textContent=v;d.querySelector('small').textContent=l;stats.append(d);}box.append(stats);
+    for(const [list,cls,icon] of [[r.errors,'err','✕'],[r.warnings,'warn','!']])for(const msg of list){const c=document.createElement('div');c.className='check '+cls;c.innerHTML=`<i>${icon}</i><span></span>`;c.querySelector('span').textContent=msg;box.append(c);}
+    if(r.ok&&!r.warnings.length){const c=document.createElement('div');c.className='check ok';c.innerHTML='<i>✓</i><span>Everything this studio uses is present.</span>';box.append(c);}}
+}
+$('character-file').onchange=async e=>{
+  const f=e.target.files[0];$('character-file').value='';if(!f)return;$('import-add').hidden=true;showReport(null,`Checking ${f.name}…`);$('import-dialog').showModal();
+  try{const res=await fetch('/api/library/import',{method:'POST',headers:{'content-type':'application/octet-stream','x-filename':encodeURIComponent(f.name),'x-name':encodeURIComponent(f.name.replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ').slice(0,16))},body:f});
+    const data=await res.json().catch(()=>({error:`Upload failed (${res.status})`}));
+    if(!res.ok){showReport(data.report,data.report?'This character can’t be used yet':'Import failed');if(!data.report)$('import-report').textContent=data.error;return;}
+    showReport(data.report,`${data.name} is in your library`);await loadLibrary();$('import-add').hidden=false;$('import-add').onclick=()=>{$('import-dialog').close();addFromLibrary(data);};
+  }catch(err){showReport(null,'Import failed');$('import-report').textContent=err.message;}
+};
 
 // 360° camera: dial for the angle around the subject (0° = in front of them), height, distance, lens, move.
 const DEG=Math.PI/180,dial=$('cam-dial');
@@ -246,4 +286,4 @@ document.addEventListener('keydown',e=>{if(['INPUT','TEXTAREA','SELECT'].include
   if((e.ctrlKey||e.metaKey)&&e.key==='z'){e.preventDefault();$(e.shiftKey?'redo':'undo').click();}});
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&!exporting)stop();});
 // Start once every handler above exists.
-try{scene=new FilmScene($('film'),project);scene.setSize(540,960);$('loading').hidden=true;refresh();render();requestAnimationFrame(tick);}catch(e){$('loading').textContent='3D could not start: '+e.message;$('status').textContent='WebGL is required. Try a current browser with graphics enabled.';console.error(e);}
+try{scene=new FilmScene($('film'),project,{onUpdate:e=>{render();if(e)toast('A 3D character could not load: '+e.message);}});scene.setSize(540,960);$('loading').hidden=true;refresh();render();requestAnimationFrame(tick);}catch(e){$('loading').textContent='3D could not start: '+e.message;$('status').textContent='WebGL is required. Try a current browser with graphics enabled.';console.error(e);}

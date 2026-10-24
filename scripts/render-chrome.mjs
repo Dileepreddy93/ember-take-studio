@@ -27,7 +27,9 @@ const browser=await chromium.launch({executablePath:args.chrome||'/usr/bin/googl
 const page=await browser.newPage();
 page.on('pageerror',e=>console.error('page error:',e.message));
 await page.goto(pathToFileURL(resolve(root,'dist/render.html')).href);
-const info=await page.evaluate(([p,w])=>window.emberRender.init(p,w),[project,width]);
+// Imported characters: hand the page each library model the cast uses.
+const assets={};for(const c of project.cast.filter(c=>c.kind==='imported')){const dir=resolve(root,'library',c.asset.id),meta=JSON.parse(await readFile(resolve(dir,'meta.json'),'utf8'));assets[c.asset.id]=(await readFile(resolve(dir,meta.file))).toString('base64');}
+const info=await page.evaluate(([p,w,a])=>window.emberRender.init(p,w,a),[project,width,assets]);
 if(info.software)console.warn('WebGL unavailable: using the software rasterizer (simpler lighting).');
 if(args.focus)await page.evaluate(id=>window.emberRender.scene.setFocus(id),String(args.focus));
 if(args.stills){

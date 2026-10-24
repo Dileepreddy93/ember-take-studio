@@ -41,10 +41,14 @@ MICA [neutral, think, pause=0.6]: You did. Four minutes ago.
 ## Layout
 
 - `dist/timeline.js` — project format, validation, script parser, shot planner, faces/actions/visemes. Pure; tested.
-- `characters.js` — procedural characters (human, robot, creature, desk bot) on one rig, two-bone IK, gestures, face drawing.
+- `characters.js` — procedural characters (human, robot, creature, desk bot) in smooth or low-poly style on one rig, two-bone IK, gestures, face drawing.
+- `character-import.js` — pure GLB/VRM reader, humanoid bone mapping, face-shape detection and import rules (used by the server and tests).
+- `imported.js` — imported characters: scaling/facing, world-space IK on their bones, morph-target lip sync and emotions.
+- `library/` — the character library (imported models + saved presets), managed through `/api/library` in `server.mjs`.
 - `scene.js` — three.js set, cast layout, 360° camera presets and custom angles, post (DOF, bloom, grade), captions.
 - `audio.js` — generated score, sound effects, voice ducking.
 - `pipeline/voice.py` — Kokoro/Chatterbox voices, silence trim, word timings, Rhubarb visemes (cached in `.voice-cache`).
 - `scripts/render-chrome.mjs` — headless Chrome WebGL frames → ffmpeg, two-pass −14 LUFS.
 - `server.mjs` — studio UI at http://localhost:8765 plus `/api/voice` and `/api/render` jobs.
+- Tests in `tests/import.test.mjs` use models in `../test-assets/` when present (three.js examples: Xbot, RobotExpressive, facecap) and skip otherwise.
 - `npm test` must pass after changes; `node server.mjs` rebuilds the UI bundle on start.

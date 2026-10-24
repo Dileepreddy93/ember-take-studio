@@ -4,3 +4,4 @@ renders/
 dist/render.bundle.js
 dist/render.html
 .jobs/
+library/

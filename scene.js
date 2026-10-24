@@ -5,11 +5,15 @@ import {EffectComposer} from 'three/examples/jsm/postprocessing/EffectComposer.j
 import {RenderPass} from 'three/examples/jsm/postprocessing/RenderPass.js';
 import {UnrealBloomPass} from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import {BokehPass} from 'three/examples/jsm/postprocessing/BokehPass.js';
+import {GTAOPass} from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import {ShaderPass} from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import {OutputPass} from 'three/examples/jsm/postprocessing/OutputPass.js';
-import {poseAt,mouthAt,faceAt,actionAt,screenAt,wordAt,beatAt,clamp,smooth,lerp} from './dist/timeline.js';
+import {poseAt,planShots,mouthAt,faceAt,actionAt,screenAt,wordAt,beatAt,clamp,smooth,lerp} from './dist/timeline.js';
 import {buildCharacter,animateCharacter,drawFace,headWorld,disposeCharacter} from './characters.js';
 import {SoftwareRenderer} from './software-renderer.js';
+import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
+import {MeshoptDecoder} from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import {buildImportedRig,animateImported,drawImportedFace,importedHeadWorld,disposeImported} from './imported.js';
 
 const PI=Math.PI,DEG=PI/180;
 function material(color,options={}){return new THREE.MeshStandardMaterial({color,roughness:.7,metalness:.05,...options})}
@@ -20,9 +24,22 @@ function cyl(parent,a,b,h,mat,x,y,z,n=10){const o=new THREE.Mesh(new THREE.Cylin
 function line(parent,points,color,r=.018){const c=new THREE.CatmullRomCurve3(points.map(p=>new THREE.Vector3(...p)));const o=new THREE.Mesh(new THREE.TubeGeometry(c,14,r,6,false),material(color));parent.add(o);return o;}
 function label(text,size=128,color='#ddd8ca',bg=null){const c=document.createElement('canvas');c.width=512;c.height=256;const x=c.getContext('2d');if(bg){x.fillStyle=bg;x.fillRect(0,0,512,256)}x.fillStyle=color;x.font=`600 ${size}px Arial`;x.textAlign='center';x.textBaseline='middle';x.fillText(text,256,130);const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;return t;}
 
-const GRADE={uniforms:{tDiffuse:{value:null},time:{value:0},grain:{value:.032},warmth:{value:1}},
+// Film looks: a colour grade per look (contrast, saturation, lift/gain tint, fade, mono, chromatic split, scanlines, grain).
+export const FILM_LOOKS={
+  studio:{label:'Studio (default)',contrast:1.06,sat:1.08,fade:0,mono:0,aberr:0,scan:0,lift:[0,0,0],gain:[1.03,1,.965],grain:.032,bloom:.24},
+  cinematic:{label:'Cinematic teal & orange',contrast:1.14,sat:1.12,lift:[-.01,.012,.03],gain:[1.08,1,.9],grain:.035,bloom:.3},
+  golden:{label:'Golden hour',contrast:1.05,sat:1.15,lift:[.03,.015,-.01],gain:[1.1,1.02,.86],grain:.03,bloom:.42},
+  pastel:{label:'Soft pastel',contrast:.9,sat:.88,fade:.08,lift:[.04,.035,.05],gain:[1,1,1.02],grain:.015,bloom:.35},
+  neon:{label:'Neon night',contrast:1.18,sat:1.4,lift:[.02,-.01,.05],gain:[1.05,.94,1.1],grain:.03,bloom:.7},
+  vintage:{label:'Vintage film',contrast:.96,sat:.78,fade:.1,lift:[.05,.035,.01],gain:[1.04,.98,.86],grain:.07,bloom:.25},
+  noir:{label:'Noir (black & white)',contrast:1.3,sat:0,mono:1,grain:.06,bloom:.2},
+  documentary:{label:'Documentary (natural)',contrast:1,sat:.92,gain:[1,1,1],grain:.02,bloom:.12},
+  dream:{label:'Dreamy glow',contrast:.94,sat:1.05,fade:.05,lift:[.03,.02,.05],gain:[1.04,1,1.04],grain:.02,bloom:.95},
+  vhs:{label:'Retro VHS',contrast:1.05,sat:1.25,fade:.06,aberr:1,scan:1,lift:[.02,0,.03],gain:[1.02,1,1.05],grain:.06,bloom:.4}
+};
+const GRADE={uniforms:{tDiffuse:{value:null},time:{value:0},grain:{value:.032},warmth:{value:1},contrast:{value:1.06},sat:{value:1.08},fade:{value:0},mono:{value:0},aberr:{value:0},scan:{value:0},lift:{value:new THREE.Vector3()},gain:{value:new THREE.Vector3(1,1,1)}},
   vertexShader:'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
-  fragmentShader:'uniform sampler2D tDiffuse;uniform float time,grain,warmth;varying vec2 vUv;float h(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453);}void main(){vec3 c=texture2D(tDiffuse,vUv).rgb;c=(c-.5)*1.06+.5;c*=vec3(1.+.03*warmth,1.,1.-.035*warmth);float l=dot(c,vec3(.299,.587,.114));c=mix(vec3(l),c,1.08);c+=(h(vUv*vec2(1080.,1920.)+fract(time*7.13)*91.7)-.5)*grain;gl_FragColor=vec4(clamp(c,0.,1.),1.);}'};
+  fragmentShader:'uniform sampler2D tDiffuse;uniform float time,grain,warmth,contrast,sat,fade,mono,aberr,scan;uniform vec3 lift,gain;varying vec2 vUv;float h(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453);}void main(){vec2 o=(vUv-.5)*aberr*.006;vec3 c=vec3(texture2D(tDiffuse,vUv+o).r,texture2D(tDiffuse,vUv).g,texture2D(tDiffuse,vUv-o).b);c=(c-.5)*contrast+.5;c=c*gain*vec3(1.+.03*(warmth-1.),1.,1.-.035*(warmth-1.))+lift;float l=dot(c,vec3(.299,.587,.114));c=mix(vec3(l),c,sat);c=mix(c,vec3(l),mono);c=mix(c,vec3(.5)+(c-.5)*.8,fade);c*=1.-scan*.12*step(.5,fract(vUv.y*480.));c+=(h(vUv*vec2(1080.,1920.)+fract(time*7.13)*91.7)-.5)*grain;gl_FragColor=vec4(clamp(c,0.,1.),1.);}'};
 const TONES={alert:{edge:'#80564c',kick:'#e7b09a',title:'#d8cbbd',bar:'#bc8264'},calm:{edge:'#547e77',kick:'#b6e7d0',title:'#e2e9df',bar:'#a6d8b8'},success:{edge:'#5d8a5a',kick:'#c4ebaa',title:'#eef6e4',bar:'#9fd88a'},info:{edge:'#4f6f8f',kick:'#a9c8ee',title:'#e1e8f2',bar:'#8fb7e6'}};
 const ACCENTS=['#ffd27a','#ffb48a','#9fd8ff','#c6f08a'],NAME_COLORS=['#d0b7ef','#eeb48d','#9fd8ff','#c6f08a'];
 // Stage layout by cast size: x positions along the keyboard, slight depth stagger.
@@ -41,6 +58,7 @@ const softShadow=(()=>{let tex=null;return ()=>{if(tex)return tex;const sc=docum
 
 export class FilmScene{
   constructor(canvas,project,options={}){
+    this.loadAsset=options.loadAsset||(id=>fetch(`/library/${id}/model`).then(r=>{if(!r.ok)throw Error(`Character file ${id} is not in the library.`);return r.arrayBuffer();}));this.onUpdate=options.onUpdate||null;this.assets=new Map();this.ready=Promise.resolve();
     this.canvas=canvas;this.project=project;this.w=540;this.h=960;this.time=0;this.manual=false;this.screenRevision=0;this.focus=null;this.previewCam=null;this.rigs=[];this.castKey='';
     if(options.software){this.renderer=new SoftwareRenderer();}else{try{this.renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,preserveDrawingBuffer:true,powerPreference:'high-performance'});}catch{this.renderer=new SoftwareRenderer();}}this.renderer.setPixelRatio(1);this.renderer.setSize(540,960);this.renderer.shadowMap.enabled=true;this.renderer.shadowMap.type=THREE.PCFSoftShadowMap;this.renderer.toneMapping=THREE.ACESFilmicToneMapping;this.renderer.toneMappingExposure=1.13;
     this.out=canvas.getContext('2d',{alpha:false});this.scene=new THREE.Scene();this.scene.background=new THREE.Color('#101c23');this.scene.fog=new THREE.FogExp2('#111d24',.023);
@@ -53,7 +71,9 @@ export class FilmScene{
     this.set=group(this.scene);this.makeSet();this.set.traverse(o=>o.userData.staticLayer=true);this.renderKey.userData.staticLayer=false;this.renderKeyLabel.userData.staticLayer=false;
     this.cast=group(this.scene);
     if(this.renderer.isSoftware){this.composer={render:()=>this.renderer.render(this.scene,this.camera),setSize:()=>{},dispose:()=>{}};}
-    else{this.composer=new EffectComposer(this.renderer);this.composer.addPass(new RenderPass(this.scene,this.camera));
+    // Multisampled HDR buffers keep edges clean through post-processing; GTAO adds soft contact shadows.
+    else{this.composer=new EffectComposer(this.renderer,new THREE.WebGLRenderTarget(540,960,{type:THREE.HalfFloatType,samples:4}));this.composer.addPass(new RenderPass(this.scene,this.camera));
+      this.ao=new GTAOPass(this.scene,this.camera,540,960);this.ao.updateGtaoMaterial({radius:.45,distanceExponent:1.4,thickness:1.2,scale:1.1,samples:12});this.ao.updatePdMaterial({lumaPhi:10,depthPhi:2,normalPhi:3,radius:6,rings:2,samples:12});this.ao.blendIntensity=.85;this.composer.addPass(this.ao);
       this.bokeh=new BokehPass(this.scene,this.camera,{focus:6,aperture:.002,maxblur:.008});this.composer.addPass(this.bokeh);
       this.bloom=new UnrealBloomPass(new THREE.Vector2(540,960),.24,.5,1.12);this.composer.addPass(this.bloom);this.composer.addPass(new OutputPass());
       this.grade=new ShaderPass(GRADE);this.composer.addPass(this.grade);}
@@ -82,12 +102,26 @@ export class FilmScene{
   }
   // Rebuilds only the characters whose look changed, then lays the cast out along the keyboard.
   buildCast(p){
-    const key=JSON.stringify(p.cast.map(c=>[c.id,c.kind,c.look]));if(key===this.castKey)return;this.castKey=key;
-    for(const r of this.rigs){this.cast.remove(r.root);this.cast.remove(r.shadow);disposeCharacter(r);}
+    const key=JSON.stringify([p.characterStyle,p.cast.map(c=>[c.id,c.kind,c.look,c.asset])]);if(key===this.castKey)return;this.castKey=key;
+    for(const r of this.rigs){this.cast.remove(r.root);this.cast.remove(r.shadow);if(r.imported)disposeImported(r);else if(!r.loading)disposeCharacter(r);}
+    const pending=[];
     const slots=LAYOUT[p.cast.length]||LAYOUT[4];
-    this.rigs=p.cast.map((m,i)=>{const rig=buildCharacter(m),[x,z]=slots[i];rig.root.position.set(x,.26,z);rig.root.rotation.y=-x*.07;rig.baseYaw=rig.root.rotation.y;rig.baseY=.26;this.cast.add(rig.root);
+    this.rigs=p.cast.map((m,i)=>{const rig=m.kind==='imported'?this.importedPlaceholder(m,pending,key):buildCharacter(m,p.characterStyle),[x,z]=slots[i];rig.root.position.set(x,.26,z);rig.root.rotation.y=-x*.07;rig.baseYaw=rig.root.rotation.y;rig.baseY=.26;this.cast.add(rig.root);
       const sh=new THREE.Mesh(new THREE.PlaneGeometry(2.1,1.6),new THREE.MeshBasicMaterial({map:softShadow(),transparent:true,depthWrite:false}));sh.rotation.x=-PI/2;sh.position.set(x,.275,z+.05);sh.scale.setScalar(m.look.height*(m.kind==='bot'?1:m.look.build*.95));this.cast.add(sh);rig.shadow=sh;return rig;});
-    this.heads={};for(const r of this.rigs){r.root.updateMatrixWorld(true);this.heads[r.member.id]=headWorld(r);}
+    this.updateHeads();this.ready=Promise.all(pending);
+  }
+  updateHeads(){this.heads={};for(const r of this.rigs){r.root.updateMatrixWorld(true);this.heads[r.member.id]=r.imported?importedHeadWorld(r):r.loading?new THREE.Vector3(r.root.position.x,3,r.root.position.z):headWorld(r);}}
+  // Imported characters load asynchronously: a translucent stand-in holds their place until the model arrives.
+  importedPlaceholder(member,pending,key){
+    const root=new THREE.Group(),ghost=new THREE.Mesh(new THREE.CapsuleGeometry(.55,2.2,6,16),new THREE.MeshStandardMaterial({color:'#9aa4ad',transparent:true,opacity:.25,depthWrite:false}));ghost.position.y=1.7*member.look.height;root.add(ghost);
+    const rig={member,kind:'imported',loading:true,root,seed:1,face:null};
+    const job=(this.assets.has(member.asset.id)?Promise.resolve(this.assets.get(member.asset.id)):this.loadAsset(member.asset.id).then(buf=>{this.assets.set(member.asset.id,buf);return buf;}))
+      .then(buf=>{const loader=new GLTFLoader();loader.setMeshoptDecoder(MeshoptDecoder);return loader.parseAsync(buf.slice(0),'');})
+      .then(gltf=>{if(this.castKey!==key)return;const real=buildImportedRig(member,gltf),i=this.rigs.indexOf(rig);if(i<0)return;
+        real.root.position.copy(rig.root.position);real.root.rotation.y=rig.root.rotation.y;real.baseYaw=rig.baseYaw;real.baseY=rig.baseY;real.shadow=rig.shadow;
+        this.cast.remove(rig.root);this.cast.add(real.root);this.rigs[i]=real;this.updateHeads();this.onUpdate?.();})
+      .catch(e=>{rig.error=e.message;ghost.material.color.set('#c0503c');console.error('Imported character failed to load:',e);this.onUpdate?.(e);});
+    pending.push(job);return rig;
   }
   setProject(p){
     this.project=p;this.lastScreenKey=null;this.buildCast(p);
@@ -98,7 +132,7 @@ export class FilmScene{
   nameOf(id){return this.project.cast.find(c=>c.id===id)?.name||id;}
   castNames(){return this.project.cast.map(c=>c.name).join(' + ');}
   rigOf(id){return this.rigs.find(r=>r.member.id===id)||this.rigs[0];}
-  setSize(w,h){this.w=w;this.h=h;this.canvas.width=w;this.canvas.height=h;this.renderer.setSize(w,h);this.composer.setSize(w,h);this.camera.aspect=w/h;this.camera.updateProjectionMatrix();}
+  setSize(w,h){this.w=w;this.h=h;this.canvas.width=w;this.canvas.height=h;this.renderer.setSize(w,h);this.composer.setSize(w,h);this.ao?.setSize(w,h);this.camera.aspect=w/h;this.camera.updateProjectionMatrix();}
   setManual(v){this.manual=v;this.controls.enabled=v;if(v){this.controls.target.copy(this.target||new THREE.Vector3(0,2,0));this.controls.update();}}
   // Character creator turntable (id) or null for the story camera.
   setFocus(id){this.focus=id;}
@@ -119,25 +153,36 @@ export class FilmScene{
   }
   // Values the 360° camera panel shows when a preset is turned into a custom angle.
   describeShot(seg){const f=this.shotFrame(seg);return {yaw:Math.round(f.yaw),pitch:Math.round(f.pitch),dist:Math.round(f.dist*10)/10,lens:Math.round(f.lens),move:'auto'};}
+  // Pose of one shot segment at time t (centre, angles, lens, move, emotion punch-in and handheld drift).
+  shotPose(seg,t,start,end,cue){
+    if(seg.shot==='screen')return {pos:new THREE.Vector3(.3,4.9,7.2),at:new THREE.Vector3(0,4.15,-4.4),fov:44,ap:.0018};
+    const f=this.shotFrame(seg),u=smooth((t-start)/Math.max(1,end-start)),move=f.move==='auto'?(seg.shot==='wide'?'orbit':'push'):f.move;
+    let yaw=f.yaw,pitch=f.pitch,dist=f.dist,shakeAmp=0;
+    if(move==='push')dist*=1-.08*u;else if(move==='pull')dist*=1+.1*u;else if(move==='orbit')yaw+=(seg.shot==='wide'?6:22)*(u-.5);else if(move==='rise')pitch+=14*u;else if(move==='handheld')shakeAmp=.035;
+    pitch=clamp(pitch,-15,70);const ay=(f.facing/DEG+yaw)*DEG,ap2=pitch*DEG,at=f.center.clone();
+    const pos=at.clone().add(new THREE.Vector3(Math.sin(ay)*Math.cos(ap2)*dist,Math.sin(ap2)*dist,Math.cos(ay)*Math.cos(ap2)*dist));
+    let fov=lensToFov(f.lens);
+    if(cue&&(cue.emotion==='angry'||cue.emotion==='surprised')&&cue.start>=start-.2&&move!=='static'){const e=t-cue.start;fov-=3.5*smooth(e/.18);shakeAmp+=.05*Math.exp(-Math.max(0,e)*5)*(e>0?1:0);}
+    if(move!=='static'){pos.x+=Math.sin(t*.23)*.06+Math.sin(t*41)*shakeAmp;pos.y+=Math.sin(t*.37+1)*.025+Math.cos(t*37)*shakeAmp;}
+    pos.y=Math.max(pos.y,.75);return {pos,at,fov,ap:f.ap};
+  }
   placeCamera(st,t){
-    const p=this.project;let pos,at,fov,ap;
+    const p=this.project;let pose;
     // Creator turntable: the camera holds a full-body front view while the character itself spins.
-    if(this.focus){const rig=this.rigOf(this.focus),h=rig.member.look.height,base=rig.root.position,tall=rig.kind==='bot'?2.2:3.5*h;at=new THREE.Vector3(base.x,base.y+tall*.5,base.z);pos=at.clone().add(new THREE.Vector3(0,.6,tall*1.75+1.2));fov=38;ap=.0008;}
-    else if(st.shot==='screen'){pos=new THREE.Vector3(.3,4.9,7.2);at=new THREE.Vector3(0,4.15,-4.4);fov=44;ap=.0018;}
+    if(this.focus){const rig=this.rigOf(this.focus),h=rig.member.look.height,base=rig.root.position,tall=rig.kind==='bot'?2.2:3.5*h,at=new THREE.Vector3(base.x,base.y+tall*.5,base.z);pose={pos:at.clone().add(new THREE.Vector3(0,.6,tall*1.75+1.2)),at,fov:38,ap:.0008};}
+    else if(this.previewCam){const seg={shot:'custom',subject:this.previewCam.subject||st.subject,other:st.other,cam:this.previewCam};pose=this.shotPose(seg,t,st.shotStart,st.shotEnd,st.cue);}
     else{
-      const seg=this.previewCam?{shot:'custom',subject:this.previewCam.subject||st.subject,other:st.other,cam:this.previewCam}:{shot:st.shot,subject:st.subject,other:st.other,cam:st.cam},f=this.shotFrame(seg);
-      const u=smooth((t-st.shotStart)/Math.max(1,st.shotEnd-st.shotStart)),move=f.move==='auto'?(seg.shot==='wide'?'orbit':'push'):f.move;
-      let yaw=f.yaw,pitch=f.pitch,dist=f.dist,shakeAmp=0;
-      if(move==='push')dist*=1-.08*u;else if(move==='pull')dist*=1+.1*u;else if(move==='orbit')yaw+=(seg.shot==='wide'?6:22)*(u-.5);else if(move==='rise')pitch+=14*u;else if(move==='handheld')shakeAmp=.035;
-      pitch=clamp(pitch,-15,70);const ay=(f.facing/DEG+yaw)*DEG,ap2=pitch*DEG;
-      at=f.center;pos=at.clone().add(new THREE.Vector3(Math.sin(ay)*Math.cos(ap2)*dist,Math.sin(ap2)*dist,Math.cos(ay)*Math.cos(ap2)*dist));
-      fov=lensToFov(f.lens);ap=f.ap;
-      const cue=st.cue;if(cue&&(cue.emotion==='angry'||cue.emotion==='surprised')&&cue.start>=st.shotStart-.2&&move!=='static'){const e=t-cue.start;fov-=3.5*smooth(e/.18);shakeAmp+=.05*Math.exp(-Math.max(0,e)*5)*(e>0?1:0);}
-      if(move!=='static'){pos.x+=Math.sin(t*.23)*.06+Math.sin(t*41)*shakeAmp;pos.y+=Math.sin(t*.37+1)*.025+Math.cos(t*37)*shakeAmp;}
-      pos.y=Math.max(pos.y,.75);
+      const segs=planShots(p),seg=segs[st.shotIndex];pose=this.shotPose(seg,t,st.shotStart,st.shotEnd,st.cue);
+      // One take: instead of cutting, glide from where the previous shot ended into this one.
+      if(p.cameraFlow==='one-take'&&st.shotIndex>0){
+        const prev=segs[st.shotIndex-1],glide=Math.min(1.4,(st.shotEnd-st.shotStart)*.6),k=smooth((t-st.shotStart)/glide);
+        if(k<1){const from=this.shotPose(prev,st.shotStart,prev.start,st.shotStart,null),e=k*k*(3-2*k);pose.pos.lerpVectors(from.pos,pose.pos,e);pose.at=from.at.clone().lerp(pose.at,e);pose.fov=lerp(from.fov,pose.fov,e);pose.ap=lerp(from.ap,pose.ap,e);}
+      }
     }
-    this.camera.position.copy(pos);this.target=at;this.camera.lookAt(at);this.camera.fov=fov;this.camera.updateProjectionMatrix();
-    if(this.bokeh){const u2=this.bokeh.uniforms;u2.focus.value=pos.distanceTo(at);u2.aperture.value=p.dof?ap:0;u2.maxblur.value=p.dof?.008:0;}
+    this.camera.position.copy(pose.pos);this.target=pose.at;this.camera.lookAt(pose.at);this.camera.fov=pose.fov;this.camera.updateProjectionMatrix();
+    if(this.bokeh){const u2=this.bokeh.uniforms;u2.focus.value=pose.pos.distanceTo(pose.at);u2.aperture.value=p.dof?pose.ap:0;u2.maxblur.value=p.dof?.008:0;}
+    const look=FILM_LOOKS[p.filmLook]||FILM_LOOKS.studio;if(this.grade){const g=this.grade.uniforms;for(const k of ['contrast','sat','fade','mono','aberr','scan'])g[k].value=look[k]??FILM_LOOKS.studio[k];g.lift.value.set(...(look.lift||[0,0,0]));g.gain.value.set(...(look.gain||[1,1,1]));g.grain.value=look.grain??.032;}
+    if(this.bloom)this.bloom.strength=look.bloom??.24;
   }
   seek(t,{overlay=true}={}){
     this.time=t;const p=this.project,st=poseAt(p,t),cue=st.cue;
@@ -145,14 +190,15 @@ export class FilmScene{
     if(!this.manual)this.placeCamera(st,this.focus?performance.now()/1000:t);else if(this.bokeh)this.bokeh.uniforms.aperture.value=0;
     const cam=this.camera.position.clone();let press=0;const cueIndex=cue?p.cues.indexOf(cue):0;
     for(const rig of this.rigs){
-      const id=rig.member.id,focused=this.focus===id;rig.root.visible=rig.shadow.visible=!this.focus||focused;rig.root.rotation.y=rig.baseYaw+(focused?(performance.now()/1000*.6)%(PI*2):0);
+      const id=rig.member.id,focused=this.focus===id;rig.root.visible=!this.focus||focused;if(rig.shadow)rig.shadow.visible=rig.root.visible;rig.root.rotation.y=rig.baseYaw+(focused?(performance.now()/1000*.6)%(PI*2):0);
+      if(rig.loading)continue;
       const speaking=st.speaker===id,talk=speaking?st.energy:0,beat=speaking?beatAt(cue,t):0,face=faceAt(p,t,id),act=actionAt(p,t,id);
       const partnerId=speaking?st.other:(st.speaker||st.other),partner=this.heads[partnerId!==id?partnerId:st.subject]||cam;
       const look=speaking?cam.clone().lerp(partner,.25):cue?this.heads[st.speaker]:cam.clone().lerp(partner,.5);
-      const res=animateCharacter(rig,{t,talk,beat,face,action:act,baseY:rig.baseY,cueIndex,look,partner,screen:SCREEN,key:KEY,camera:cam});press=Math.max(press,res.press);
+      const perf={t,talk,beat,face,action:act,baseY:rig.baseY,cueIndex,look,partner,screen:SCREEN,key:KEY,camera:cam},res=rig.imported?animateImported(rig,perf):animateCharacter(rig,perf);press=Math.max(press,res.press);
       const u=(t*.31+rig.seed*.173)%1,blink=(u<.03?.1:1)*(Math.sin(t*1.3+rig.seed)>.997?.1:1),gaze=speaking?0:clamp((this.heads[st.speaker]?.x??cam.x)-rig.root.position.x,-1,1)*.8;
       const mouth=mouthAt(p,t,id)||{open:talk*(.45+.4*Math.abs(Math.sin(t*11+rig.seed))),wide:1,round:0,teeth:talk>.3?1:0,tongue:0};
-      drawFace(rig,mouth,face,blink,gaze,t);
+      if(rig.imported)drawImportedFace(rig,mouth,face,blink);else drawFace(rig,mouth,face,blink,gaze,t);
     }
     this.renderKey.position.y=.16-.08*press;this.renderKeyLabel.position.y=.334-.08*press;
     if(this.grade)this.grade.uniforms.time.value=t;
@@ -192,5 +238,5 @@ export class FilmScene{
     x.restore();
   }
   boxCaption(st){const x=this.out,w=this.w,h=this.h,s=w/540,c=st.cue,max=w*.79;x.font=`600 ${20*s}px Arial`;const lines=this.wrap(c.text.split(' '),max).map(r=>r.map(q=>q.word).join(' '));const bh=(43+lines.length*27)*s,y=h*.83-bh*.5;x.fillStyle='rgba(10,18,23,.87)';x.beginPath();x.roundRect(w*.075,y,w*.85,bh,9*s);x.fill();x.textAlign='center';x.font=`bold ${10*s}px Arial`;x.fillStyle=NAME_COLORS[this.castIndex(c.speaker)%4];x.fillText(this.nameOf(c.speaker).toUpperCase(),w/2,y+22*s);x.font=`600 ${20*s}px Arial`;x.fillStyle='#eee9dc';lines.forEach((l,i)=>x.fillText(l,w/2,y+(48+i*27)*s));}
-  dispose(){this.controls.dispose();for(const r of this.rigs)disposeCharacter(r);this.scene.traverse(o=>{o.geometry?.dispose();if(o.material){for(const m of Array.isArray(o.material)?o.material:[o.material])m.dispose();}});this.composer.dispose();this.renderer.dispose();}
+  dispose(){this.controls.dispose();for(const r of this.rigs){if(r.imported)disposeImported(r);else if(!r.loading)disposeCharacter(r);}this.scene.traverse(o=>{o.geometry?.dispose();if(o.material){for(const m of Array.isArray(o.material)?o.material:[o.material])m.dispose();}});this.composer.dispose();this.renderer.dispose();}
 }

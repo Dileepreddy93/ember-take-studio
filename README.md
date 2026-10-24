@@ -32,6 +32,26 @@ creature, desk bot) and shape each one: body proportions, hair, eyes, outfit, gl
 voice. The stage shows a turntable of the character you are editing. **Scene tab → Camera → Custom 360°**
 gives each line a free angle: drag the dial around the character, then set height, distance, lens and move.
 
+**Character library (Cast tab):** *Save to library* keeps any built-in character for future episodes.
+*Import 3D character* adds your own rigged model; it is checked on upload and the report explains anything
+missing. Imported characters use the same gestures, look-at, emotions and camera as built-in ones.
+
+| Import rule | Requirement |
+|---|---|
+| Format | `.glb` (glTF 2.0 binary) or `.vrm`, up to 40 MB |
+| Weight | under 300k triangles (≤120k renders fastest) |
+| Skeleton | humanoid: hips, spine, neck, head, both upper/lower arms and hands (legs recommended). Mixamo, VRoid/VRM, Rigify, Character Creator and 3ds Max names are recognised |
+| Lip sync | mouth shapes: Oculus visemes (`viseme_aa`…), ARKit (`jawOpen`…), VRoid (`Fcl_MTH_A`…), VRM expressions, or a jaw bone |
+| Blink / feelings | `eyeBlink*`, `Fcl_EYE_Close` or VRM `blink`; happy/angry/sad/surprised shapes when present |
+| Not supported | Draco or Basis/KTX2 compression (re-export without it); finger curls on imported hands |
+
+Free sources: VRoid Studio (export `.vrm`), Mixamo (rig and download, convert FBX → GLB in Blender), Blender's
+glTF exporter. Only import characters you have the rights to use commercially.
+
+**Film tab:** *Character style* (Smooth premium shading or faceted Low-poly), *Film look* (10 grades: studio,
+cinematic teal & orange, golden hour, pastel, neon, vintage, noir, documentary, dreamy, retro VHS) and
+*Camera flow* (*Cuts*, or *One take*: the camera glides from shot to shot with no cuts).
+
 Or from the terminal, script to finished reel in one command:
 
 ```
@@ -64,7 +84,8 @@ two-shot on long silences.
 
 | Part | Tool | Licence |
 |---|---|---|
-| 3D, characters, camera, captions | three.js in headless Chrome (GPU) | MIT |
+| 3D, characters, camera, captions | three.js in headless Chrome (GPU), MSAA + ambient occlusion | MIT |
+| Imported characters | glTF/VRM via three.js GLTFLoader (+ meshopt) | MIT |
 | Fast voices | Kokoro-82M | Apache-2.0 |
 | Expressive voices | Chatterbox (clones each character's Kokoro voice) | MIT |
 | Lip sync | Rhubarb Lip Sync | MIT |

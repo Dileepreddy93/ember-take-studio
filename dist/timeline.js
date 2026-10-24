@@ -1,6 +1,6 @@
 // Portable film document: validation, script format and absolute-time evaluation.
 // Everything here is pure, so the browser, the headless renderer and tests agree frame for frame.
-export const KINDS=['human','robot','creature','bot'];
+export const KINDS=['human','robot','creature','bot','imported'];
 export const SPECIES=['fox','cat','dragon','bear','bunny'];
 export const EMOTIONS=['neutral','happy','sad','angry','surprised','worried','curious','idea'];
 export const ACTIONS=['none','explain','wave','point','point-screen','point-other','shrug','facepalm','think','cheer','clap','thumbsup','crossarms','handsup','nod','headshake','lean','jump','type','press','raise'];
@@ -8,6 +8,8 @@ export const SHOTS=['auto','wide','two','single','cu','ots','screen','custom'];
 export const MOVES=['auto','static','push','pull','orbit','rise','handheld'];
 export const TONES=['alert','calm','success','info'];
 export const CAPTION_STYLES=['bold','box'];
+export const CHARACTER_STYLES=['smooth','lowpoly'];
+export const FILM_LOOK_IDS=['studio','cinematic','golden','pastel','neon','vintage','noir','documentary','dream','vhs'];
 export const MAX_CAST=4;
 // Character look: enumerated styles, numeric proportions and colours. Every kind reads the fields it uses.
 export const LOOK_OPTIONS={species:SPECIES,hairStyle:['shaggy','chunky','short','curly','long','bun','mohawk','bald'],facialHair:['none','stubble','beard','mustache'],eyeStyle:['glossy','classic'],topStyle:['hoodie','tshirt','jacket','suit'],glasses:['none','round','square'],hat:['none','cap','beanie','headphones']};
@@ -25,7 +27,7 @@ export const CAST_TEMPLATES={
 // Face rig targets per emotion: inner-brow lift, brow height, eye openness, mouth curve, head tilt/nod.
 export const FACES={
   neutral:{brow:0,raise:0,eye:1,smile:.05,tilt:0,down:0,open:0},
-  happy:{brow:-.05,raise:.03,eye:.62,smile:.9,tilt:.05,down:-.03,open:0},
+  happy:{brow:-.05,raise:.03,eye:.74,smile:.9,tilt:.05,down:-.03,open:0},
   sad:{brow:.32,raise:-.01,eye:.72,smile:-.7,tilt:.06,down:.12,open:0},
   angry:{brow:-.4,raise:-.04,eye:.78,smile:-.45,tilt:0,down:.06,open:0},
   surprised:{brow:0,raise:.09,eye:1.28,smile:0,tilt:0,down:-.06,open:.3},
@@ -39,7 +41,7 @@ export const DEFAULT_PROJECT={
     {id:'Ren',name:'Ren',kind:'human',voice:'am_michael',look:{...LOOK_DEFAULTS,hairStyle:'chunky',eyeStyle:'classic',glasses:'round',skin:'#c78a65',hair:'#292026',eyes:'#211b23',top:'#8364c5',accent:'#b59ad8',bottom:'#19222d'}},
     {id:'Mica',name:'Mica',kind:'bot',voice:'af_heart',look:{...LOOK_DEFAULTS,top:'#ee704e',accent:'#493d39',screen:'#94f3d4'}}
   ],
-  warmth:1,dof:true,music:true,sfx:true,musicVolume:.6,captions:true,captionStyle:'bold',intro:true,
+  characterStyle:'smooth',filmLook:'studio',cameraFlow:'cuts',warmth:1,dof:true,music:true,sfx:true,musicVolume:.6,captions:true,captionStyle:'bold',intro:true,
   endTitle:'Made. Together.',endSub:'A little imagination goes a long way.',
   voiceEngine:'kokoro',voiceData:null,musicData:null,
   cues:[
@@ -245,11 +247,15 @@ export function validateProject(raw){
   p.cast=castIn.map((c,i)=>{
     if(!ID.test(c.id||'')||seen.has(c.id))throw Error(`Character ${i+1}: invalid or duplicate id.`);seen.add(c.id);
     if(!KINDS.includes(c.kind))throw Error(`Character ${i+1}: unknown type "${c.kind}".`);
-    return {id:c.id,name:String(c.name||c.id).trim().slice(0,16)||c.id,kind:c.kind,voice:VOICE.test(c.voice)?c.voice:'am_michael',look:normalizeLook(c.look)};
+    const out={id:c.id,name:String(c.name||c.id).trim().slice(0,16)||c.id,kind:c.kind,voice:VOICE.test(c.voice)?c.voice:'am_michael',look:normalizeLook(c.look)};
+    if(c.kind==='imported'){if(!/^[a-z0-9-]{6,40}$/.test(c.asset?.id||''))throw Error(`Character ${i+1}: imported model is missing its library id.`);out.asset={id:c.asset.id,flip:Boolean(c.asset.flip)};}
+    return out;
   });
   p.warmth=clamp(Number(p.warmth)||1,.5,1.5);p.musicVolume=clamp(Number(p.musicVolume??.6),0,1);
   for(const k of ['music','sfx','captions','dof','intro'])p[k]=Boolean(p[k]);
   if(!CAPTION_STYLES.includes(p.captionStyle))p.captionStyle='bold';
+  if(!CHARACTER_STYLES.includes(p.characterStyle))p.characterStyle='smooth';
+  if(!FILM_LOOK_IDS.includes(p.filmLook))p.filmLook='studio';if(!['cuts','one-take'].includes(p.cameraFlow))p.cameraFlow='cuts';
   p.endTitle=String(p.endTitle||'').slice(0,40);p.endSub=String(p.endSub||'').slice(0,80);
   if(!['kokoro','chatterbox'].includes(p.voiceEngine))p.voiceEngine='kokoro';
   for(const [k,limit] of [['voiceData',16e6],['musicData',14e6]])

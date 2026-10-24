@@ -3,16 +3,17 @@
 // Jobs run one at a time (they all want the CPU) and report progress for the UI to poll.
 import http from 'node:http';
 import {spawn,spawnSync} from 'node:child_process';
-import {readFile,writeFile,mkdir,readdir,stat} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,readdir,stat,rm} from 'node:fs/promises';
 import {existsSync,createReadStream,readdirSync} from 'node:fs';
 import {resolve,dirname,extname,relative} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
 import {build} from 'esbuild';
+import {validateCharacter,IMPORT_RULES} from './character-import.js';
 
 const root=dirname(fileURLToPath(import.meta.url)),forge=resolve(root,'..'),PORT=Number(process.env.PORT||8765);
 const PY=resolve(forge,'.venv/bin/python'),CB=resolve(forge,'.venv-cb/bin/python'),RHUBARB=resolve(forge,'tools/Rhubarb-Lip-Sync-1.14.0-Linux/rhubarb');
-const jobsDir=resolve(root,'.jobs'),rendersDir=resolve(root,'renders');await mkdir(jobsDir,{recursive:true});await mkdir(rendersDir,{recursive:true});
+const jobsDir=resolve(root,'.jobs'),rendersDir=resolve(root,'renders'),libraryDir=resolve(root,'library');for(const d of [jobsDir,rendersDir,libraryDir])await mkdir(d,{recursive:true});
 await build({entryPoints:[resolve(root,'app.js')],bundle:true,format:'esm',minify:true,outfile:resolve(root,'dist/app.bundle.js'),logLevel:'error'});
 
 const VOICES={
@@ -65,7 +66,13 @@ async function renderJob(project,width){
   });
 }
 
-const TYPES={'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.json':'application/json','.mp4':'video/mp4','.jpg':'image/jpeg','.png':'image/png','.svg':'image/svg+xml','.wav':'audio/wav','.zip':'application/zip'};
+const TYPES={'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.json':'application/json','.mp4':'video/mp4','.jpg':'image/jpeg','.png':'image/png','.svg':'image/svg+xml','.wav':'audio/wav','.zip':'application/zip','.glb':'model/gltf-binary','.vrm':'model/gltf-binary'};
+async function rawBody(req,limit){const chunks=[];let size=0;for await(const c of req){size+=c.length;if(size>limit)throw Object.assign(Error(`The file is over ${limit/1e6} MB.`),{status:413});chunks.push(c);}return Buffer.concat(chunks);}
+// Character library: imported GLB/VRM models (validated on upload) and saved built-in characters (presets).
+async function listLibrary(){
+  const out=[];for(const id of await readdir(libraryDir).catch(()=>[])){try{const meta=JSON.parse(await readFile(resolve(libraryDir,id,'meta.json'),'utf8'));out.push(meta);}catch{}}
+  return out.sort((a,b)=>b.created-a.created);
+}
 async function body(req,limit=60e6){const chunks=[];let size=0;for await(const c of req){size+=c.length;if(size>limit)throw Error('Request too large.');chunks.push(c);}return JSON.parse(Buffer.concat(chunks).toString('utf8'));}
 const send=(res,code,data)=>{res.writeHead(code,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(data));};
 async function serveFile(req,res,file){
@@ -79,7 +86,22 @@ const inside=(base,file)=>{const r=relative(base,file);return r&&!r.startsWith('
 http.createServer(async(req,res)=>{
   try{
     const url=new URL(req.url,'http://localhost'),path=decodeURIComponent(url.pathname);
-    if(path==='/api/status')return send(res,200,{engines:engines(),voices:VOICES});
+    if(path==='/api/status')return send(res,200,{engines:engines(),voices:VOICES,importRules:IMPORT_RULES});
+    if(path==='/api/library'&&req.method==='GET')return send(res,200,await listLibrary());
+    if(path==='/api/library/import'&&req.method==='POST'){
+      const file=decodeURIComponent(req.headers['x-filename']||'character.glb'),name=decodeURIComponent(req.headers['x-name']||'').trim().slice(0,16)||file.replace(/\.[^.]+$/,'').slice(0,16),data=await rawBody(req,IMPORT_RULES.maxBytes+1e6);
+      const report=validateCharacter(data,file);if(!report.ok)return send(res,422,{error:report.errors[0],report});
+      const id=randomUUID(),dir=resolve(libraryDir,id),model='model'+(report.format==='vrm'?'.vrm':'.glb');await mkdir(dir);await writeFile(resolve(dir,model),data);
+      const meta={id,type:'imported',name,file:model,source:file,created:Date.now(),report:{...report,face:{...report.face,morphs:report.face.morphs.slice(0,80)}}};await writeFile(resolve(dir,'meta.json'),JSON.stringify(meta));
+      return send(res,201,meta);
+    }
+    if(path==='/api/library/preset'&&req.method==='POST'){
+      const b=await body(req,1e6),m=b.member;if(!m||!m.look||!['human','robot','creature','bot'].includes(m.kind))return send(res,400,{error:'Send a built-in character to save.'});
+      const id=randomUUID();await mkdir(resolve(libraryDir,id));const meta={id,type:'preset',name:String(m.name||'Character').slice(0,16),created:Date.now(),member:{name:m.name,kind:m.kind,voice:m.voice,look:m.look}};
+      await writeFile(resolve(libraryDir,id,'meta.json'),JSON.stringify(meta));return send(res,201,meta);
+    }
+    if(path.startsWith('/api/library/')&&req.method==='DELETE'){const id=path.split('/').pop();if(!/^[a-z0-9-]{6,40}$/.test(id))return send(res,400,{error:'Bad id'});await rm(resolve(libraryDir,id),{recursive:true,force:true});return send(res,200,{deleted:id});}
+    if(/^\/library\/[a-z0-9-]{6,40}\/model$/.test(path)){const id=path.split('/')[2];const meta=JSON.parse(await readFile(resolve(libraryDir,id,'meta.json'),'utf8').catch(()=>'{}'));if(!meta.file)return send(res,404,{error:'Not in the library'});return serveFile(req,res,resolve(libraryDir,id,meta.file));}
     if(path==='/api/voice'&&req.method==='POST'){const b=await body(req);const job=await voiceJob(b.project,b.layout==='keep'?'keep':'flow');return send(res,202,{id:job.id});}
     if(path==='/api/render'&&req.method==='POST'){const b=await body(req);const width=[540,720,1080].includes(Number(b.width))?Number(b.width):1080;const job=await renderJob(b.project,width);return send(res,202,{id:job.id});}
     if(path.startsWith('/api/jobs/')){const job=jobs.get(path.split('/').pop());if(!job)return send(res,404,{error:'Unknown job'});const {log,...rest}=job;return send(res,200,{...rest,log:log.slice(-6)});}
@@ -90,5 +112,5 @@ http.createServer(async(req,res)=>{
     if(path.startsWith('/renders/')){const file=resolve(rendersDir,path.slice(9));if(!inside(rendersDir,file))return send(res,403,{error:'Forbidden'});return serveFile(req,res,file);}
     const dist=resolve(root,'dist'),file=resolve(dist,path==='/'?'index.html':path.slice(1));
     if(!inside(dist,file))return send(res,403,{error:'Forbidden'});return serveFile(req,res,file);
-  }catch(e){send(res,500,{error:e.message});}
+  }catch(e){send(res,e.status||500,{error:e.message});}
 }).listen(PORT,'127.0.0.1',()=>console.log(`Ember Take studio ready: http://localhost:${PORT}`));
