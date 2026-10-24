@@ -21,7 +21,9 @@ await mkdir(frames,{recursive:true});
 await build({entryPoints:[resolve(root,'render-entry.js')],bundle:true,format:'iife',minify:true,outfile:resolve(root,'dist/render.bundle.js'),logLevel:'error'});
 await writeFile(resolve(root,'dist/render.html'),'<!doctype html><meta charset="utf-8"><body style="margin:0;background:#000"><script src="./render.bundle.js"></script>');
 
-const browser=await chromium.launch({executablePath:args.chrome||'/usr/bin/google-chrome',args:['--use-angle=swiftshader','--enable-unsafe-swiftshader','--ignore-gpu-blocklist']});
+// GPU through ANGLE/OpenGL by default (about 10x faster); --cpu forces the SwiftShader software path.
+const gpuFlags=args.cpu?['--use-angle=swiftshader','--enable-unsafe-swiftshader']:['--use-gl=angle','--use-angle=gl','--ignore-gpu-blocklist','--enable-gpu-rasterization'];
+const browser=await chromium.launch({executablePath:args.chrome||'/usr/bin/google-chrome',args:gpuFlags});
 const page=await browser.newPage();
 page.on('pageerror',e=>console.error('page error:',e.message));
 await page.goto(pathToFileURL(resolve(root,'dist/render.html')).href);
@@ -65,5 +67,5 @@ const measured=JSON.parse(spawnSync('ffmpeg',['-hide_banner','-i',mix,'-af','lou
 const norm=`loudnorm=I=-14:TP=-1.5:LRA=11:measured_I=${measured.input_i}:measured_TP=${measured.input_tp}:measured_LRA=${measured.input_lra}:measured_thresh=${measured.input_thresh}:offset=${measured.target_offset}:linear=true,aresample=48000`;
 console.log('Encoding film');
 const film=resolve(out,'film.mp4');
-ff(['-framerate','30','-i',resolve(frames,'frame_%05d.jpg'),'-i',mix,'-af',norm,'-map','0:v','-map','1:a','-c:v','libx264','-preset','slow','-crf','17','-pix_fmt','yuv420p','-r','30','-c:a','aac','-b:a','192k','-t',String(project.duration),'-movflags','+faststart',film]);
+ff(['-framerate','30','-i',resolve(frames,'frame_%05d.jpg'),'-i',mix,'-af',norm,'-map','0:v','-map','1:a','-c:v','libx264','-preset','slow','-crf','18','-maxrate','14M','-bufsize','28M','-pix_fmt','yuv420p','-r','30','-c:a','aac','-b:a','192k','-t',String(project.duration),'-movflags','+faststart',film]);
 console.log('Ready:',film);

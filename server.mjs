@@ -4,7 +4,7 @@
 import http from 'node:http';
 import {spawn,spawnSync} from 'node:child_process';
 import {readFile,writeFile,mkdir,readdir,stat} from 'node:fs/promises';
-import {existsSync,createReadStream} from 'node:fs';
+import {existsSync,createReadStream,readdirSync} from 'node:fs';
 import {resolve,dirname,extname,relative} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
@@ -20,10 +20,12 @@ const VOICES={
   'American male':['am_michael','am_puck','am_fenrir','am_echo','am_eric','am_liam','am_onyx','am_adam','am_santa'],
   'British female':['bf_emma','bf_isabella','bf_alice','bf_lily'],'British male':['bm_george','bm_fable','bm_lewis','bm_daniel']
 };
-// Chatterbox may still be installing: a negative check is retried after a minute.
+// Chatterbox may still be installing or downloading its model: a negative check is retried after a minute.
+const hfModel=resolve(process.env.HF_HOME||resolve(process.env.HOME,'.cache/huggingface'),'hub/models--ResembleAI--chatterbox/snapshots');
+const modelCached=()=>{try{return readdirSync(hfModel).some(d=>existsSync(resolve(hfModel,d,'t3_cfg.safetensors'))&&existsSync(resolve(hfModel,d,'s3gen.safetensors')));}catch{return false;}};
 let chatterboxReady=false,chatterboxChecked=0;
 function engines(){
-  if(!chatterboxReady&&existsSync(CB)&&Date.now()-chatterboxChecked>60000){chatterboxChecked=Date.now();chatterboxReady=spawnSync(CB,['-c','import chatterbox.tts'],{timeout:90000}).status===0;}
+  if(!chatterboxReady&&existsSync(CB)&&Date.now()-chatterboxChecked>60000){chatterboxChecked=Date.now();chatterboxReady=modelCached()&&spawnSync(CB,['-c','import chatterbox.tts'],{timeout:90000}).status===0;}
   return {kokoro:existsSync(PY),chatterbox:Boolean(chatterboxReady),rhubarb:existsSync(RHUBARB),ffmpeg:spawnSync('ffmpeg',['-version']).status===0};
 }
 

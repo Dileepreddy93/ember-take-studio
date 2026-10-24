@@ -6,8 +6,11 @@
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "build": "node scripts/build.mjs",
-    "render": "node scripts/render.mjs",
-    "package:offline": "node scripts/package-offline.mjs"
+    "render": "node scripts/render-chrome.mjs",
+    "package:offline": "node scripts/package-offline.mjs",
+    "episode": "node scripts/episode.mjs",
+    "studio": "node server.mjs",
+    "render:software": "node scripts/render.mjs"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.80",

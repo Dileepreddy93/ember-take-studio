@@ -12,7 +12,7 @@ layout=flow  lays lines end to end with each line's `pause` and fits the duratio
 layout=keep  keeps authored start times (pushes a line later only if one overruns).
 Prints `PROGRESS done/total message` lines for the studio server.
 """
-import argparse, base64, hashlib, io, json, pathlib, subprocess, sys
+import argparse, base64, hashlib, io, json, os, pathlib, subprocess, sys
 import numpy as np
 import soundfile as sf
 
@@ -88,7 +88,8 @@ def chatterbox_batch(jobs):
         sys.exit('Chatterbox is not installed. Use the Kokoro engine, or install it with: python3 -m venv .venv-cb && .venv-cb/bin/pip install chatterbox-tts')
     spec = CACHE / 'cb_jobs.json'
     spec.write_text(json.dumps(jobs))
-    proc = subprocess.Popen([str(CB_PYTHON), '-I', str(ROOT / 'pipeline/cb_tts.py'), str(spec)], stdout=subprocess.PIPE, text=True)
+    # Plain HTTPS downloads: the Xet transfer backend can stall on slow connections.
+    proc = subprocess.Popen([str(CB_PYTHON), '-I', str(ROOT / 'pipeline/cb_tts.py'), str(spec)], stdout=subprocess.PIPE, text=True, env={**os.environ, 'HF_HUB_DISABLE_XET': '1'})
     for line in proc.stdout:
         print(line.rstrip(), flush=True)
     if proc.wait() != 0:

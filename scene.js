@@ -73,7 +73,7 @@ function makeRen(parent){
   // Drawn mouth on a curved decal that follows the jaw: lips, teeth, tongue and expression curve.
   const mouthTex=canvasTexture(256,128),R=.5,arc=.8,geo=new THREE.CylinderGeometry(R,R,.2,12,1,true,-arc/2,arc);geo.translate(0,0,-R);
   const mouth=new THREE.Mesh(geo,new THREE.MeshStandardMaterial({map:mouthTex.texture,transparent:true,alphaTest:.04,roughness:.55,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-2}));
-  mouth.position.set(0,-.285,.455);mouth.rotation.x=.33;mouth.renderOrder=2;head.add(mouth);
+  mouth.position.set(0,-.27,.458);mouth.rotation.x=.2;mouth.renderOrder=2;head.add(mouth);
   const haircap=sphere(head,.53,hairMat,0,.26,-.04,10);haircap.scale.set(1,1,.87);
   for(let i=0;i<9;i++){const h=new THREE.Mesh(new THREE.DodecahedronGeometry(.22+(i%3)*.035,0),hairMat);h.position.set(-.4+(i%5)*.2,.52+Math.sin(i*1.7)*.09,.25-Math.floor(i/5)*.32);h.rotation.set(i*.4,i*.8,i*.6);h.scale.set(1.05,1.25,.85);h.castShadow=true;head.add(h);}
   const quiff=new THREE.Mesh(new THREE.ConeGeometry(.27,.53,4),hairMat);quiff.position.set(-.19,.7,.23);quiff.rotation.z=-.43;head.add(quiff);
@@ -159,16 +159,16 @@ export class FilmScene{
   }
   drawRenMouth(m,f){
     const open=clamp(m.open+f.open*(1-m.open),0,1),key=[open,m.wide,m.round,m.teeth,m.tongue,f.smile].map(q).join();if(key===this.lastMouthKey)return;this.lastMouthKey=key;
-    const {ctx:x,texture}=this.ren.mouthTex,cx=128,cy=56,w=44*m.wide*(1-m.round*.38)*(1+Math.max(0,f.smile)*.12),hgt=open*40,curve=f.smile*12*(1-open*.5);
+    const {ctx:x,texture}=this.ren.mouthTex,cx=128,cy=50,w=52*m.wide*(1-m.round*.38)*(1+Math.max(0,f.smile)*.12),hgt=open*85,curve=f.smile*12*(1-open*.5);
     x.clearRect(0,0,256,128);x.lineCap='round';x.lineJoin='round';
     if(hgt<5){x.strokeStyle='#5c2721';x.lineWidth=6;x.beginPath();x.moveTo(cx-w,cy-curve);x.quadraticCurveTo(cx,cy+curve*1.1,cx+w,cy-curve);x.stroke();x.strokeStyle='rgba(140,62,52,.55)';x.lineWidth=4;x.beginPath();x.moveTo(cx-w*.55,cy+7-curve*.2);x.quadraticCurveTo(cx,cy+11+curve*.6,cx+w*.55,cy+7-curve*.2);x.stroke();}
     else{
       const r=m.round,top=cy-hgt*(.42+r*.08),bot=cy+hgt*(.62+r*.1),lx=cx-w,rx=cx+w,ly=cy-curve*.8;
-      x.beginPath();x.moveTo(lx,ly);x.bezierCurveTo(cx-w*(.55-r*.25),top,cx+w*(.55-r*.25),top,rx,ly);x.bezierCurveTo(cx+w*(.6+r*.2),bot+curve*.4,cx-w*(.6+r*.2),bot+curve*.4,lx,ly);x.closePath();
-      x.fillStyle='#34110f';x.fill();x.save();x.clip();
-      if(m.tongue>.05||hgt>14){x.fillStyle='#b8524d';x.beginPath();x.ellipse(cx,bot-2+(1-m.tongue)*6,w*.55,hgt*(.28+m.tongue*.15),0,0,PI*2);x.fill();}
-      if(m.teeth){x.fillStyle='#f4ebdf';x.fillRect(lx,top-4,w*2,Math.min(13,hgt*.32)+4);}
-      x.restore();x.strokeStyle='#6d2c25';x.lineWidth=4.5;x.stroke();
+      const outline=()=>{x.beginPath();x.moveTo(lx,ly);x.bezierCurveTo(cx-w*(.55-r*.25),top,cx+w*(.55-r*.25),top,rx,ly);x.bezierCurveTo(cx+w*(.6+r*.2),bot+curve*.4,cx-w*(.6+r*.2),bot+curve*.4,lx,ly);x.closePath();};
+      outline();x.fillStyle='#2a0c0b';x.fill();x.save();x.clip();
+      if(m.tongue>.05){x.fillStyle='#9c4643';x.beginPath();x.ellipse(cx,bot+hgt*.12,w*.5,hgt*(.18+m.tongue*.16),0,0,PI*2);x.fill();}
+      if(m.teeth){x.fillStyle='#f4ebdf';x.fillRect(lx,top-4,w*2,Math.min(16,hgt*.26)+4);}
+      x.restore();outline();x.strokeStyle='#6d2c25';x.lineWidth=4.5;x.stroke();
       x.strokeStyle='rgba(160,76,64,.75)';x.lineWidth=5;x.beginPath();x.moveTo(cx-w*.7,bot-hgt*.05);x.quadraticCurveTo(cx,bot+6,cx+w*.7,bot-hgt*.05);x.stroke();
     }
     texture.needsUpdate=true;
