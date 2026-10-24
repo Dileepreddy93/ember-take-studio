@@ -3,3 +3,4 @@ renders/
 .voice-cache/
 dist/render.bundle.js
 dist/render.html
+.jobs/
