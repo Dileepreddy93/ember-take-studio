@@ -29,6 +29,7 @@ page.on('pageerror',e=>console.error('page error:',e.message));
 await page.goto(pathToFileURL(resolve(root,'dist/render.html')).href);
 const info=await page.evaluate(([p,w])=>window.emberRender.init(p,w),[project,width]);
 if(info.software)console.warn('WebGL unavailable: using the software rasterizer (simpler lighting).');
+if(args.focus)await page.evaluate(id=>window.emberRender.scene.setFocus(id),String(args.focus));
 if(args.stills){
   for(const t of String(args.stills).split(',').map(Number)){const url=await page.evaluate(i=>window.emberRender.frame(i),Math.round(t*30));await writeFile(resolve(out,`still_${t.toFixed(2)}.jpg`),Buffer.from(url.slice(url.indexOf(',')+1),'base64'));}
   await browser.close();console.log('stills done');process.exit(0);

@@ -27,7 +27,7 @@ export async function makeSound(project,voice=null,music=null){
   if(project.sfx!==false){
     for(const cue of project.cues){
       // Synthetic character blips stand in for speech only when no voice track exists.
-      if(!voice&&!project.voiceData){if(cue.speaker==='Mica'){note(cue.start,.16,660,.055,.3,'bell','sfx');note(cue.start+.11,.2,cue.emotion==='idea'?1320:880,.045,.3,'bell','sfx');}else note(cue.start,.09,1,.028,-.2,'noise','sfx');}
+      if(!voice&&!project.voiceData){const kind=project.cast?.find(c=>c.id===cue.speaker)?.kind;if(kind==='bot'||kind==='robot'){note(cue.start,.16,660,.055,.3,'bell','sfx');note(cue.start+.11,.2,cue.emotion==='idea'?1320:880,.045,.3,'bell','sfx');}else note(cue.start,.09,1,.028,-.2,'noise','sfx');}
       const s=cue.screen,at=cue.start-.15;
       if(s?.tone==='alert'){note(at,.35,330,.07,-.3,'bell','sfx');note(at+.23,.45,277.18,.06,-.3,'bell','sfx');}
       else if(s?.tone==='success')for(let j=0;j<4;j++)note(at+j*.14,2,[523.25,659.25,783.99,1046.5][j],.07,(j-1.5)*.25,'bell','sfx');

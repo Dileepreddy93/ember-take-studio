@@ -125,7 +125,8 @@ def main():
     CACHE.mkdir(exist_ok=True)
     project = json.loads(pathlib.Path(args.src).read_text())
     engine = project.get('voiceEngine', 'kokoro')
-    voices = project.get('voices') or {'Ren': 'am_michael', 'Mica': 'af_heart'}
+    # Each cast member carries its own voice; older projects kept a Ren/Mica map.
+    voices = {c['id']: c['voice'] for c in project.get('cast', [])} or project.get('voices') or {'Ren': 'am_michael', 'Mica': 'af_heart'}
     cues = sorted(project['cues'], key=lambda c: c['start'])
     total = len(cues)
 
