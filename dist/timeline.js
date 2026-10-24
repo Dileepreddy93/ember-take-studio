@@ -21,6 +21,7 @@ export const DEFAULT_PROJECT={
   version:2,title:'The Last Connection',duration:30,fps:30,
   handle:'@embertake',names:{Ren:'Ren',Mica:'Mica'},
   humanColor:'#8364c5',hairColor:'#292026',skinColor:'#c78a65',robotColor:'#ee704e',faceColor:'#94f3d4',glasses:true,
+  humanAppearance:{kind:'human',species:'fox',height:1,build:1,headWidth:1,hairStyle:'textured',eyeColor:'#3b2b24',outfit:'hoodie',pantsColor:'#19222d',shoeColor:'#d6cbb5',facialHair:'none'},
   warmth:1,dof:true,music:true,sfx:true,musicVolume:.6,captions:true,captionStyle:'bold',intro:true,
   endTitle:'Made. Together.',endSub:'A little imagination goes a long way.',
   voiceEngine:'kokoro',voices:{Ren:'am_michael',Mica:'af_heart'},voiceData:null,musicData:null,
@@ -169,6 +170,17 @@ export function validateProject(raw){
   p.title=String(p.title||'Untitled film').slice(0,70);p.handle=String(p.handle??'').slice(0,24);
   p.names={Ren:String(p.names?.Ren||'Ren').slice(0,16),Mica:String(p.names?.Mica||'Mica').slice(0,16)};
   for(const k of ['humanColor','robotColor','hairColor','skinColor','faceColor'])if(!COLOR.test(p[k]))throw Error('Invalid character color.');
+  const a={...base.humanAppearance,...(p.humanAppearance||{})};
+  for(const [key,min,max] of [['height',.82,1.18],['build',.78,1.3],['headWidth',.85,1.18]]){
+    const value=Number(a[key]);if(!Number.isFinite(value))throw Error(`Invalid character ${key}.`);a[key]=clamp(value,min,max);
+  }
+  for(const key of ['eyeColor','pantsColor','shoeColor'])if(!COLOR.test(a[key]))throw Error(`Invalid character ${key}.`);
+  if(!['textured','short','curly','long','bald'].includes(a.hairStyle))throw Error('Unknown hairstyle.');
+  if(!['hoodie','jacket','shirt'].includes(a.outfit))throw Error('Unknown outfit.');
+  if(!['none','stubble','beard'].includes(a.facialHair))throw Error('Unknown facial hair.');
+  if(!['human','robot','creature'].includes(a.kind))throw Error('Unknown character type.');
+  if(!['fox','cat','dragon'].includes(a.species))throw Error('Unknown creature type.');
+  p.humanAppearance=a;
   p.warmth=clamp(Number(p.warmth)||1,.5,1.5);p.musicVolume=clamp(Number(p.musicVolume??.6),0,1);
   for(const k of ['glasses','music','sfx','captions','dof','intro'])p[k]=Boolean(p[k]);
   if(!CAPTION_STYLES.includes(p.captionStyle))p.captionStyle='bold';

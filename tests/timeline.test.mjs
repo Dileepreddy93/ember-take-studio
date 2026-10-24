@@ -3,6 +3,16 @@ import assert from 'node:assert/strict';
 import {DEFAULT_PROJECT,clone,validateProject,poseAt,mouthAt,faceAt,actionAt,screenAt,planShots,parseScript,toScript,VISEMES,FACES} from '../dist/timeline.js';
 import {makeSound,RATE} from '../audio.js';
 
+test('character appearance survives project validation and rejects unsupported styles',()=>{
+  const p=clone(DEFAULT_PROJECT);p.humanAppearance={...p.humanAppearance,hairStyle:'curly',height:1.12,eyeColor:'#4b6a89'};
+  assert.equal(validateProject(p).humanAppearance.hairStyle,'curly');
+  assert.equal(validateProject(p).humanAppearance.height,1.12);
+  p.humanAppearance.hairStyle='unknown';assert.throws(()=>validateProject(p),/hairstyle/);
+  p.humanAppearance.hairStyle='curly';p.humanAppearance.kind='creature';p.humanAppearance.species='dragon';
+  assert.equal(validateProject(p).humanAppearance.species,'dragon');
+  p.humanAppearance.kind='invalid';assert.throws(()=>validateProject(p),/character type/);
+});
+
 test('sample project survives portable JSON save and reopen',()=>{
  const p=validateProject(JSON.parse(JSON.stringify(DEFAULT_PROJECT)));
  assert.deepEqual(p,DEFAULT_PROJECT);

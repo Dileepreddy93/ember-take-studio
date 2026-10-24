@@ -27,6 +27,12 @@ and browser export still work, but voices and studio renders do not.
 5. **Export film → Render with the studio engine.** 1080 × 1920, 30 fps, about 14 Mbps, −14 LUFS.
    Renders are kept in `renders/` and listed in the export dialog.
 
+In **Cast → Character creator**, customize the first character as a human, robot, or creature
+(fox, cat, or dragon). Change body proportions, colors, outfit, eyes, hair, and other details,
+then choose **Apply cast**. The appearance is saved in the project and used by preview and export.
+These are procedural characters in the studio's stylized look; photorealistic or imported rigged
+models are not supported yet.
+
 Or from the terminal, script to finished reel in one command:
 
 ```
