@@ -11,7 +11,7 @@ export async function exportFilm(scene,project,audio,width,onProgress,signal){
   const target=new ArrayBufferTarget(),muxer=new Muxer({target,video:{codec:vc.codec.startsWith('avc')?'avc':'vp9',width,height,frameRate:fps},audio:{codec:ac.codec==='opus'?'opus':'aac',numberOfChannels:2,sampleRate:RATE},fastStart:'in-memory',firstTimestampBehavior:'offset'});
   const ve=new VideoEncoder({output:(c,m)=>muxer.addVideoChunk(c,m),error:e=>err=e});ve.configure(vc);
   const ae=new AudioEncoder({output:(c,m)=>muxer.addAudioChunk(c,m),error:e=>err=e});ae.configure(ac);
-  const before={w:scene.w,h:scene.h,t:scene.time,manual:scene.manual};scene.setManual(false);scene.setSize(width,height);
+  const before={w:scene.w,h:scene.h,t:scene.time,manual:scene.manual,focus:scene.focus,previewCam:scene.previewCam};scene.setManual(false);scene.setFocus(null);scene.previewCam=null;scene.setSize(width,height);
   const yieldUI=()=>new Promise(r=>setTimeout(r,0));
   try{
     for(let i=0;i<frames;i++){
@@ -24,5 +24,5 @@ export async function exportFilm(scene,project,audio,width,onProgress,signal){
     const count=audio[0].length,step=1024;for(let off=0;off<count;off+=step){const len=Math.min(step,count-off),data=new Float32Array(len*2);data.set(audio[0].subarray(off,off+len));data.set(audio[1].subarray(off,off+len),len);const ad=new AudioData({format:'f32-planar',sampleRate:RATE,numberOfFrames:len,numberOfChannels:2,timestamp:Math.round(off/RATE*1e6),data});ae.encode(ad);ad.close();if(off%(step*30)===0){await yieldUI();if(err)throw err;if(signal.aborted)throw Error('Render cancelled.');}}
     await ae.flush();if(err)throw err;muxer.finalize();onProgress(1,'Your film is ready.');
     return {blob:new Blob([target.buffer],{type:'video/mp4'}),videoCodec:vc.codec,audioCodec:ac.codec,frames,width,height};
-  }finally{if(ve.state!=='closed')ve.close();if(ae.state!=='closed')ae.close();scene.setSize(before.w,before.h);scene.setManual(before.manual);scene.seek(before.t);}
+  }finally{if(ve.state!=='closed')ve.close();if(ae.state!=='closed')ae.close();scene.setSize(before.w,before.h);scene.setManual(before.manual);scene.setFocus(before.focus);scene.previewCam=before.previewCam;scene.seek(before.t);}
 }

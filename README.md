@@ -194,3 +194,7 @@ Choose **A laptop · ending pullback** in World → They stand on, or `# world: 
 Imported humanoids expose sitting and held props in Cast. Pose quality depends on the model's bone mapping and proportions; arbitrary non-humanoid models are not automatically retargeted.
 
 The opening showcase contains small previews made from this studio's own renders. The original script for the new proof is `examples/the-undo-button.script.txt`. Run `../.venv/bin/python tests/voice_modulation_test.py` for Python modulation checks in addition to `npm test`.
+
+The editor workflow is **Script → Cast → World → Voices → Export**. The sample-reel strip collapses as you start editing to give the preview more room. On desktop, the story and settings panels scroll independently; on mobile, the compact story list appears before the settings. Choosing a dialogue line opens its Scene settings.
+
+Generated voices are tied to the script: changing dialogue, speaker, timing, emotion or modulation clears the old generated track so it cannot accidentally play or export the previous words. Visual changes preserve speech. Undo restores the earlier version, including its audio. Browser exports always use the story camera, even when opened from the Cast tab.
