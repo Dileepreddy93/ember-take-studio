@@ -86,6 +86,19 @@ export async function voiceProject(project,layout,onProgress,synth=null){
   return p;
 }
 
+// The cloud engine (backend/modal_app.py): the desktop pipeline itself, streamed back as NDJSON progress lines and
+// then the voiced project. Throws on any failure so the caller can fall back to voicing on this device.
+export async function cloudVoice(base,project,layout,onProgress){
+  const sent={...project,voiceData:null,musicData:null};
+  const res=await fetch(base+'/api/voice',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({project:sent,layout})});
+  if(!res.ok)throw Error((await res.json().catch(()=>({}))).error||`Cloud voices are unavailable (${res.status}).`);
+  const reader=res.body.getReader(),text=new TextDecoder();let buf='';
+  for(;;){const {value,done}=await reader.read();if(done)break;buf+=text.decode(value,{stream:true});let i;
+    while((i=buf.indexOf('\n'))>=0){const line=buf.slice(0,i).trim();buf=buf.slice(i+1);if(!line)continue;const m=JSON.parse(line);
+      if(m.error)throw Error(m.error);if(m.project)return {...m.project,musicData:project.musicData};onProgress?.(m.progress,m.message.replace(/^voiced /,'Voiced ').replace(/^cached /,'Ready '));}}
+  throw Error('The cloud voice engine stopped early.');
+}
+
 function wav16(samples){
   const buf=new ArrayBuffer(44+samples.length*2),v=new DataView(buf),str=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i));};
   str(0,'RIFF');v.setUint32(4,36+samples.length*2,true);str(8,'WAVEfmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);

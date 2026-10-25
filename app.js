@@ -3,7 +3,7 @@ import {NATURE,deskParticles,DESK_TIMES} from './worlds.js';
 import {DEFAULT_PROJECT,EMOTIONS,ACTIONS,SHOTS,LOOK_OPTIONS,LOOK_RANGES,MAX_CAST,clone,validateProject,planShots,parseScript,toScript,applyScript,newCastMember,normalizeLook,SETS,WORLD_PARTICLES,THEMES,applyTheme,DESK_PROPS,writerPrompt} from './dist/timeline.js';
 import {makeSound,RATE,master} from './audio.js';
 import {exportFilm} from './exporter.js';
-import {voiceProject,voicePath,MODEL_MB} from './browser-voice.js';
+import {voiceProject,voicePath,MODEL_MB,cloudVoice} from './browser-voice.js';
 import {libraryFetch} from './local-library.js';
 const $=id=>document.getElementById(id),storageKey='ember-take-project-v3';
 let project=clone(DEFAULT_PROJECT),selected=1,castSel=null,time=0,playing=false,last=0,exporting=false,scene,audioCtx,audioSource,soundBuffer,voiceBuffer,musicBuffer,aborter,server=null;
@@ -15,7 +15,7 @@ const nameOf=id=>id==='all'?'whole cast':project.cast.find(c=>c.id===id)?.name||
 const FALLBACK_VOICES={'American female':['af_heart','af_bella','af_nicole','af_sarah','af_sky'],'American male':['am_michael','am_puck','am_fenrir','am_echo','am_adam'],'British female':['bf_emma','bf_isabella'],'British male':['bm_george','bm_lewis']};
 function toast(s){$('toast').textContent=s;$('toast').classList.add('show');clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').classList.remove('show'),4200)}
 function options(select,entries){select.replaceChildren(...entries.map(([v,t])=>{const o=document.createElement('option');o.value=v;o.textContent=t;return o;}));}
-try{const old=localStorage.getItem(storageKey)||localStorage.getItem('ember-take-project-v2')||localStorage.getItem('ember-take-project-v1');if(old)project=validateProject(JSON.parse(old));}catch{toast('The saved project could not be opened. Loaded the sample film.');}
+let restored=false;try{const old=localStorage.getItem(storageKey)||localStorage.getItem('ember-take-project-v2')||localStorage.getItem('ember-take-project-v1');if(old){project=validateProject(JSON.parse(old));restored=true;}}catch{toast('The saved project could not be opened. Loaded the sample film.');}
 const timer=t=>`${String(Math.floor(t/60)).padStart(2,'0')}:${String(Math.floor(t%60)).padStart(2,'0')}`;
 function persist(){try{localStorage.setItem(storageKey,JSON.stringify(project));$('save-status').textContent='Saved on this device';}catch{$('save-status').textContent='Use Save project to keep your changes';}}
 function stop(){audioGeneration++;playing=false;$('play').textContent='▶';$('play').setAttribute('aria-label','Play film');if(audioSource){try{audioSource.stop()}catch{}audioSource=null;}}
@@ -62,7 +62,11 @@ function refresh(){
 async function decode(dataURL){return audioCtx.decodeAudioData(await(await fetch(dataURL)).arrayBuffer());}
 async function ensureAudio(){if(!audioCtx)audioCtx=new AudioContext({sampleRate:RATE});await audioCtx.resume();if(!soundBuffer){if(project.voiceData&&!voiceBuffer)voiceBuffer=await decode(project.voiceData);if(project.musicData&&!musicBuffer)musicBuffer=await decode(project.musicData);const channels=await makeSound(project,project.voiceData?voiceBuffer:null,project.musicData?musicBuffer:null);soundBuffer=audioCtx.createBuffer(2,channels[0].length,RATE);channels.forEach((a,c)=>soundBuffer.copyToChannel(a,c));}return soundBuffer;}
 async function play(){if(exporting)return;if(playing){stop();return;}if(time>=project.duration-.04)time=0;scene.setManual(false);$('orbit').setAttribute('aria-pressed','false');const gen=++audioGeneration;try{$('status').textContent='Mixing sound…';const buf=await ensureAudio();if(gen!==audioGeneration)return;audioSource=audioCtx.createBufferSource();audioSource.buffer=buf;audioSource.connect(audioCtx.destination);audioSource.start(0,time);$('status').textContent='Playing.';}catch(e){toast('Audio is unavailable: '+e.message);}playing=true;last=performance.now();$('play').textContent='Ⅱ';$('play').setAttribute('aria-label','Pause film');}
-function tick(now){requestAnimationFrame(tick);if(exporting)return;if(playing){time+=(now-last)/1000;last=now;if(time>=project.duration){time=project.duration;stop();}render();}else if(scene?.manual||scene?.focus)render();}
+// Smooth playback on any device: if frames take longer than ~24 fps allows, the preview steps down (no ambient
+// occlusion, then a smaller internal size). Exports always render at full quality.
+let quality=2,slow=[];
+function adapt(dt){slow.push(dt);if(slow.length<45)return;const avg=slow.reduce((a,b)=>a+b,0)/slow.length;slow=[];if(avg>42&&quality>0){quality--;scene.setPreviewQuality(quality);if(quality===0)scene.setSize(432,768);}}
+function tick(now){requestAnimationFrame(tick);if(exporting)return;if(playing){const dt=now-last;time+=dt/1000;last=now;adapt(dt);if(time>=project.duration){time=project.duration;stop();}render();}else if(scene?.manual||scene?.focus)render();}
 options($('emotion'),EMOTIONS.map(e=>[e,EMO[e]]));options($('film-look'),Object.entries(FILM_LOOKS).map(([k,v])=>[k,v.label]));options($('action'),ACTIONS.map(a=>[a,ACT[a]]));
 $('help-emotions').textContent=EMOTIONS.join(', ');$('help-actions').textContent=ACTIONS.join(', ');$('help-shots').textContent=SHOTS.filter(s=>s!=='custom').join(', ');
 function fillVoices(groups){for(const sel of document.querySelectorAll('.voice-select')){sel.replaceChildren(...Object.entries(groups).map(([label,ids])=>{const g=document.createElement('optgroup');g.label=label;g.append(...ids.map(id=>{const o=document.createElement('option');o.value=id;o.textContent=id.slice(3).replace(/^./,c=>c.toUpperCase());return o;}));return g;}));}}
@@ -76,7 +80,7 @@ async function watch(id,onUpdate){for(;;){const job=await api('/api/jobs/'+id);o
   try{server=await (globalThis.EMBER_STATIC?Promise.reject(Error('static build')):api('/api/status'));fillVoices(server.voices);refresh();
     const e=server.engines,ok=e.kokoro&&e.rhubarb&&e.ffmpeg;$('engine-pill').textContent=ok?`● Studio engine ready${e.chatterbox?' · expressive voices':''}`:'● Studio engine incomplete';$('engine-pill').classList.add(ok?'ok':'warn');
     const cb=document.querySelector('input[value=chatterbox]');cb.disabled=!e.chatterbox;if(!e.chatterbox)cb.closest('label').title='Expressive voices are still installing or unavailable.';loadRenders();loadLibrary();
-  }catch{server=null;loadLibrary();$('engine-pill').textContent='● Online studio · voices run on this device';$('engine-pill').classList.add('off');$('studio-render').disabled=true;const cb=document.querySelector('input[name=engine][value=chatterbox]');if(cb){cb.disabled=true;cb.closest('label').title='Expressive voices need the desktop studio';}document.querySelector('input[name=engine][value=kokoro]').checked=true;voicePath().then(p=>{$('voice-job').textContent=`Voices and lip sync are made on this device (${p==='webgpu'?'graphics card':'processor'}). The first time downloads the voice model, ${MODEL_MB[p]} MB, which your browser keeps.`;});$('studio-status').textContent='Studio-quality renders need the desktop engine. Use the browser export below.';$('browser-export-open')?.click();document.querySelector('.browser-export').open=true;}
+  }catch{server=null;loadLibrary();wakeCloud();if(!restored)loadDemo();$('engine-pill').textContent='● Online studio';$('engine-pill').classList.add('off');$('studio-render').disabled=true;const cb=document.querySelector('input[name=engine][value=chatterbox]');if(cb){cb.disabled=true;cb.closest('label').title='Expressive voices need the desktop studio';}document.querySelector('input[name=engine][value=kokoro]').checked=true;if(!cloud)voicePath().then(p=>{$('voice-job').textContent=`Voices and lip sync are made on this device (${p==='webgpu'?'graphics card':'processor'}). The first time downloads the voice model, ${MODEL_MB[p]} MB, which your browser keeps.`;});$('studio-status').textContent='Studio-quality renders need the desktop engine. Use the browser export below.';$('browser-export-open')?.click();document.querySelector('.browser-export').open=true;}
 })();
 $('generate-voices').onclick=async()=>{
   stop();const btn=$('generate-voices');btn.disabled=true;$('voice-progress').hidden=false;$('voice-progress').value=0;
@@ -85,7 +89,10 @@ $('generate-voices').onclick=async()=>{
     if(server){const {id}=await api('/api/voice',{project:{...clone(project),voiceEngine:engine},layout:$('voice-layout').value});
       result=await watch(id,j=>{$('voice-progress').value=j.progress;$('voice-job').textContent=j.status==='queued'?'Waiting for the studio…':j.message;});}
     // Online: the same Kokoro voices, generated on this device.
-    else{engine='kokoro';result=await voiceProject(project,$('voice-layout').value,(f,msg)=>{$('voice-progress').value=f;$('voice-job').textContent=msg;});}
+    else{engine='kokoro';const show=(f,msg)=>{$('voice-progress').value=f;$('voice-job').textContent=msg;};
+      // Online: the cloud engine (seconds, desktop-identical); if it can't be reached, the same voices on this device.
+      try{if(!cloud)throw Error('no cloud engine');show(.02,'Sending the script to the cloud voice engine…');result=await cloudVoice(cloud,project,$('voice-layout').value,show);}
+      catch(e){if(cloud)console.warn('Cloud voices failed, voicing on this device:',e.message);result=await voiceProject(project,$('voice-layout').value,show);}}
     const keepSelected=selected;voiceBuffer=null;commit({...result,cast:project.cast,voiceEngine:engine});selected=keepSelected;time=0;fillLine();render();$('voice-job').textContent=`Done. ${project.cues.length} lines voiced, film is ${project.duration} seconds. Press play.`;toast('Voices and lip sync are ready.');
   }catch(e){$('voice-job').textContent='Could not generate voices: '+e.message;}finally{btn.disabled=false;$('voice-progress').hidden=true;}
 };
@@ -197,6 +204,12 @@ $('randomize').onclick=()=>{const m=member(),look={...m.look};
 
 // Character library: imported GLB/VRM models and saved built-in characters, reusable in any episode.
 const LIP={oculus:'visemes',arkit:'ARKit face',vroid:'VRoid mouth',vrm:'VRM expressions',generic:'mouth shape',jaw:'jaw bone',none:'none'};
+// First visit online: open a finished, voiced demo reel, so Play shows the studio at its best straight away.
+async function loadDemo(){try{const r=await fetch('demo.ember.json');if(!r.ok)return;const p=validateProject(await r.json());selected=p.cues[0]?.id||0;castSel=p.cast[0].id;time=0;restore(p);}catch(e){console.warn('Demo film unavailable:',e.message);}}
+// Online cloud engine (set by the Pages build): woken as soon as the page opens so voices are ready in seconds.
+const cloud=globalThis.EMBER_API||null;
+function wakeCloud(){if(!cloud)return;$('voice-job').textContent='Voices and lip sync are made by the cloud voice engine in seconds.';
+  fetch(cloud+'/api/status').then(r=>r.ok&&r.json()).then(j=>{if(j?.cloud){$('engine-pill').textContent='● Online studio · cloud voices ready';}}).catch(()=>{});}
 let library=[];
 // The library lives on the studio engine, or online in this browser (local-library.js answers the same requests).
 const libFetch=(path,init)=>server?fetch(path,init):libraryFetch(path,init);
@@ -315,8 +328,8 @@ $('copy-prompt').onclick=async()=>{const prompt=writerPrompt(project,$('ai-topic
 
 $('export-open').onclick=()=>{stop();if(!globalThis.VideoEncoder)$('export-status').textContent='This browser exports a frame package with soundtrack; its included converter creates the MP4.';loadRenders();$('export-dialog').showModal();};$('close-export').onclick=()=>{if(!exporting)$('export-dialog').close();};$('export-dialog').addEventListener('cancel',e=>{if(exporting)e.preventDefault()});
 $('render').onclick=async()=>{if(exporting)return;stop();exporting=true;aborter=new AbortController();$('render').disabled=true;$('export-size').disabled=true;$('close-export').disabled=true;$('export-progress').hidden=false;$('cancel-export').hidden=false;$('export-result').hidden=true;$('export-status').textContent='Preparing soundtrack…';
-  try{const buf=await ensureAudio(),audio=master([buf.getChannelData(0).slice(),buf.getChannelData(1).slice()]);const result=await exportFilm(scene,clone(project),audio,Number($('export-size').value),(n,text)=>{$('export-progress').value=n;$('export-status').textContent=text;},aborter.signal);if(resultURL)URL.revokeObjectURL(resultURL);resultURL=URL.createObjectURL(result.blob);const archive=result.kind==='frames';$('result-video').hidden=archive;if(!archive)$('result-video').src=resultURL;$('download-film').href=resultURL;$('download-film').download=fileBase()+(archive?'_render.zip':'.mp4');$('download-film').textContent=archive?'Download render package ↓':'Download film ↓';$('export-result').hidden=false;$('export-status').textContent=`Ready · ${result.width} × ${result.height} · ${result.frames} frames · ${(result.blob.size/1e6).toFixed(1)} MB`+(archive?' · Extract and run convert_video.py to create your MP4.':'');$('status').textContent='Final film rendered successfully.';
-  }catch(e){$('export-status').textContent=e.message;console.error(e);}finally{exporting=false;$('render').disabled=false;$('export-size').disabled=false;$('close-export').disabled=false;$('cancel-export').hidden=true;render();}};
+  try{const buf=await ensureAudio(),audio=master([buf.getChannelData(0).slice(),buf.getChannelData(1).slice()]);scene.setPreviewQuality(2);const result=await exportFilm(scene,clone(project),audio,Number($('export-size').value),(n,text)=>{$('export-progress').value=n;$('export-status').textContent=text;},aborter.signal);if(resultURL)URL.revokeObjectURL(resultURL);resultURL=URL.createObjectURL(result.blob);const archive=result.kind==='frames';$('result-video').hidden=archive;if(!archive)$('result-video').src=resultURL;$('download-film').href=resultURL;$('download-film').download=fileBase()+(archive?'_render.zip':'.mp4');$('download-film').textContent=archive?'Download render package ↓':'Download film ↓';$('export-result').hidden=false;$('export-status').textContent=`Ready · ${result.width} × ${result.height} · ${result.frames} frames · ${(result.blob.size/1e6).toFixed(1)} MB`+(archive?' · Extract and run convert_video.py to create your MP4.':'');$('status').textContent='Final film rendered successfully.';
+  }catch(e){$('export-status').textContent=e.message;console.error(e);}finally{scene.setPreviewQuality(quality);exporting=false;$('render').disabled=false;$('export-size').disabled=false;$('close-export').disabled=false;$('cancel-export').hidden=true;render();}};
 $('cancel-export').onclick=()=>aborter?.abort();
 document.addEventListener('keydown',e=>{if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)||document.querySelector('dialog[open]'))return;
   if(e.code==='Space'){e.preventDefault();play();}

@@ -115,15 +115,12 @@ def finish_take(key, raw_path, text, words):
     meta = {'words': [[round(s, 3), round(e, 3), w] for s, e, w in words], 'visemes': visemes(wav_path, text)}
     (CACHE / f'{key}.json').write_text(json.dumps(meta))
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument('src'); ap.add_argument('dst')
-    ap.add_argument('--layout', choices=['keep', 'flow'], default='flow')
-    ap.add_argument('--lead', type=float, default=None, help='silence before the first line (flow); default fits the intro card')
-    ap.add_argument('--tail', type=float, default=1.6, help='silence after the last line (flow)')
-    args = ap.parse_args()
+class VoiceError(Exception):
+    """A problem with the script the user can fix (too long, overrunning lines)."""
+
+def voice_project(project, layout='flow', lead=None, tail=1.6, report=progress):
+    """Voices a project dict and returns it with voiceData, word timings and visemes (used by the CLI and the cloud engine)."""
     CACHE.mkdir(exist_ok=True)
-    project = json.loads(pathlib.Path(args.src).read_text())
     engine = project.get('voiceEngine', 'kokoro')
     # Each cast member carries its own voice; older projects kept a Ren/Mica map.
     voices = {c['id']: c['voice'] for c in project.get('cast', [])} or project.get('voices') or {'Ren': 'am_michael', 'Mica': 'af_heart'}
@@ -137,43 +134,43 @@ def main():
         key = hashlib.sha256(json.dumps([engine, cue['text'], voice, style, 2]).encode()).hexdigest()[:16]
         keys.append(key)
         if (CACHE / f'{key}.json').exists():
-            progress(i + 1, total, f"cached {cue['speaker']}: {cue['text']}")
+            report(i + 1, total, f"cached {cue['speaker']}: {cue['text']}")
             continue
         if engine == 'kokoro':
             audio, words = kokoro(cue['text'], voice, style)
             raw = CACHE / f'{key}.raw.wav'
             sf.write(raw, audio, RATE, subtype='PCM_16')
             finish_take(key, raw, cue['text'], words)
-            progress(i + 1, total, f"voiced {cue['speaker']}: {cue['text']}")
+            report(i + 1, total, f"voiced {cue['speaker']}: {cue['text']}")
         else:
-            progress(i, total, f"preparing {cue['speaker']} voice")
+            report(i, total, f"preparing {cue['speaker']} voice")
             cb_jobs.append({'key': key, 'text': cue['text'], 'ref': str(reference_clip(voice)), 'exaggeration': style[0],
                             'cfg': style[1], 'out': str(CACHE / f'{key}.raw.wav'), 'label': f"{cue['speaker']}: {cue['text']}", 'index': i, 'total': total})
     chatterbox_batch(cb_jobs)
     for job in cb_jobs:
         finish_take(job['key'], pathlib.Path(job['out']), job['text'], None)
     if cb_jobs:
-        progress(total, total, 'lip sync aligned')
+        report(total, total, 'lip sync aligned')
 
-    lead = args.lead if args.lead is not None else (1.4 if project.get('intro', True) else 0.4)
-    cursor = lead if args.layout == 'flow' else 0.0
+    lead = lead if lead is not None else (1.4 if project.get('intro', True) else 0.4)
+    cursor = lead if layout == 'flow' else 0.0
     takes = []
     for cue, key in zip(cues, keys):
         audio, _ = sf.read(CACHE / f'{key}.wav', dtype='float32')
         meta = json.loads((CACHE / f'{key}.json').read_text())
         takes.append(audio)
         length = len(audio) / RATE
-        start = cursor if args.layout == 'flow' else max(cue['start'], cursor)
+        start = cursor if layout == 'flow' else max(cue['start'], cursor)
         cue['start'], cue['end'] = round(start, 3), round(start + length + 0.1, 3)
         cue['visemes'], cue['words'] = meta['visemes'], meta['words']
-        cursor = cue['end'] + (cue.get('pause', 0.45) if args.layout == 'flow' else 0.3)
+        cursor = cue['end'] + (cue.get('pause', 0.45) if layout == 'flow' else 0.3)
     end = cues[-1]['end']
-    if args.layout == 'flow':
-        project['duration'] = int(np.ceil(end + args.tail + (1.1 if project.get('endTitle') else 0)))
+    if layout == 'flow':
+        project['duration'] = int(np.ceil(end + tail + (1.1 if project.get('endTitle') else 0)))
         if project['duration'] > 90:
-            sys.exit(f'The voiced film runs {project["duration"]}s; the limit is 90s. Shorten the script.')
+            raise VoiceError(f'The voiced film runs {project["duration"]}s; the limit is 90s. Shorten the script.')
     elif end > project['duration']:
-        sys.exit(f'Voiced lines run to {end:.1f}s, past the {project["duration"]}s film. Shorten text or use --layout flow.')
+        raise VoiceError(f'Voiced lines run to {end:.1f}s, past the {project["duration"]}s film. Shorten text or use --layout flow.')
 
     track = np.zeros(int(project['duration'] * RATE), np.float32)
     for cue, audio in zip(cues, takes):
@@ -183,8 +180,22 @@ def main():
     sf.write(buf, track, RATE, format='WAV', subtype='PCM_16')
     project['voiceData'] = 'data:audio/wav;base64,' + base64.b64encode(buf.getvalue()).decode()
     project['cues'] = cues
+    return project
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('src'); ap.add_argument('dst')
+    ap.add_argument('--layout', choices=['keep', 'flow'], default='flow')
+    ap.add_argument('--lead', type=float, default=None, help='silence before the first line (flow); default fits the intro card')
+    ap.add_argument('--tail', type=float, default=1.6, help='silence after the last line (flow)')
+    args = ap.parse_args()
+    try:
+        project = voice_project(json.loads(pathlib.Path(args.src).read_text()), args.layout, args.lead, args.tail)
+    except VoiceError as e:
+        sys.exit(str(e))
     pathlib.Path(args.dst).write_text(json.dumps(project))
-    print(f'DONE {len(cues)} lines, {project["duration"]}s', flush=True)
+    print(f'DONE {len(project["cues"])} lines, {project["duration"]}s', flush=True)
+
 
 if __name__ == '__main__':
     main()

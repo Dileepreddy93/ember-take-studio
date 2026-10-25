@@ -23,6 +23,9 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build:pages
+        env:
+          # Cloud voice engine URL (backend/modal_app.py), set as a repository variable; empty = voices on each device.
+          EMBER_API: ${{ vars.EMBER_API }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

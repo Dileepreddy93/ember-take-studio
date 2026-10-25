@@ -215,6 +215,8 @@ export class FilmScene{
   castNames(){return this.project.cast.map(c=>c.name).join(' + ');}
   rigOf(id){return this.rigs.find(r=>r.member.id===id)||this.rigs[0];}
   setSize(w,h){this.w=w;this.h=h;this.canvas.width=w;this.canvas.height=h;this.renderer.setSize(w,h);this.composer.setSize(w,h);this.ao?.setSize(w,h);this.camera.aspect=w/h;this.camera.updateProjectionMatrix();}
+  // Preview quality on slower devices: 2 full, 1 without ambient occlusion (exports always render at 2).
+  setPreviewQuality(q){this.quality=q;if(this.ao)this.ao.enabled=q>=2;}
   setManual(v){this.manual=v;this.controls.enabled=v;if(v){this.controls.target.copy(this.target||new THREE.Vector3(0,2,0));this.controls.update();}}
   // Character creator turntable (id) or null for the story camera.
   setFocus(id){this.focus=id;}
