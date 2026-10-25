@@ -17,17 +17,25 @@ rendering are available.
 ## Online version
 
 Every push to `main` publishes the studio to GitHub Pages (`.github/workflows/pages.yml`), so anyone
-can make a full reel from a link, on a computer or a phone. Online, each visitor's browser is the engine,
-so there is no server to pay for, overload or attack, and nobody sees anyone else's work:
+can make a full reel from a link, on a computer or a phone. First-time visitors open a finished, voiced
+demo reel. Nobody sees anyone else's work:
 
 | Online | How |
 |---|---|
-| Voices and lip sync | The same Kokoro voices as the desktop, with word timings and mouth shapes, run on the visitor's GPU (WebGPU) or CPU (WASM) by [HeadTTS](https://github.com/met4citizen/HeadTTS). The first time downloads the voice model; the browser keeps it |
+| Voices and lip sync | The **cloud voice engine** (`backend/`, AWS Lambda) runs `pipeline/voice.py` itself: the desktop's Kokoro voices and lip sync, with live progress line by line. The studio wakes it when someone opens the Voice tab or loads a script on open. If it is off or unreachable, the same Kokoro voices are made on the visitor's device by [HeadTTS](https://github.com/met4citizen/HeadTTS) (92 MB model download the first time) |
 | Character library | Imports (.glb/.vrm characters, 3D worlds, 360° backgrounds) and saved characters are checked by the same rules and kept privately in the visitor's browser |
 | Export film | An MP4 made in the browser, mastered to −14 LUFS like studio renders |
 
 The desktop engine (`npm run studio`) adds the expressive Chatterbox voices and headless studio renders.
 Build the static site locally with `npm run build:pages` (output in `site/`).
+
+**Cloud voice engine controls** (personal AWS profile only, see `backend/aws.sh`): `deploy`, `stop` (off at once, no
+compute used; the site falls back to on-device voices), `start`, `status`, `budget EMAIL` (alert above $1/month) and
+`destroy` (removes everything). Compute is billed for invocations, including model warm-up. The scheduled usage guard checks every 15 minutes;
+it is not a hard billing cap or a guarantee of zero cost. ECR image storage is billed separately. The engine requests
+a two-job reserved concurrency cap; accounts whose quota prevents reservations use their account concurrency limit instead.
+The cloud image uses quantized ONNX Kokoro, so audio can differ slightly from desktop PyTorch output. The deploy user needs the inline policy in `backend/aws-deploy-policy.json` (only `ember-take-*` resources).
+The site learns the engine's URL from the repository variable `EMBER_API`.
 
 ## Make a reel
 
@@ -148,7 +156,7 @@ two-shot on long silences.
 | Imported characters | glTF/VRM via three.js GLTFLoader (+ meshopt) | MIT |
 | Fast voices | Kokoro-82M | Apache-2.0 |
 | Expressive voices | Chatterbox (clones each character's Kokoro voice) | MIT |
-| Lip sync | Rhubarb Lip Sync | MIT |
+| Lip sync | Kokoro's own phoneme timings; Rhubarb Lip Sync for Chatterbox voices | Apache-2.0 / MIT |
 | Mix, loudness, encoding | ffmpeg | LGPL/GPL |
 
 All of these allow commercial use, so finished reels can be sold to clients. Only use music you have

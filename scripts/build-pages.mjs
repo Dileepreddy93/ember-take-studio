@@ -8,7 +8,7 @@ import {resolve,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
-// The cloud voice engine (backend/modal_app.py); empty means voices are made on each visitor's device.
+// The cloud voice engine (backend/engine_api.py); empty means voices are made on each visitor's device.
 const API=process.env.EMBER_API??'';
 const arg=process.argv.find(a=>a.startsWith('--out='));const out=resolve(root,arg?arg.slice(6):'site');
 await rm(out,{recursive:true,force:true});await mkdir(out,{recursive:true});

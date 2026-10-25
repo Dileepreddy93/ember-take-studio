@@ -80,7 +80,7 @@ async function watch(id,onUpdate){for(;;){const job=await api('/api/jobs/'+id);o
   try{server=await (globalThis.EMBER_STATIC?Promise.reject(Error('static build')):api('/api/status'));fillVoices(server.voices);refresh();
     const e=server.engines,ok=e.kokoro&&e.rhubarb&&e.ffmpeg;$('engine-pill').textContent=ok?`● Studio engine ready${e.chatterbox?' · expressive voices':''}`:'● Studio engine incomplete';$('engine-pill').classList.add(ok?'ok':'warn');
     const cb=document.querySelector('input[value=chatterbox]');cb.disabled=!e.chatterbox;if(!e.chatterbox)cb.closest('label').title='Expressive voices are still installing or unavailable.';loadRenders();loadLibrary();
-  }catch{server=null;loadLibrary();wakeCloud();if(!restored)loadDemo();$('engine-pill').textContent='● Online studio';$('engine-pill').classList.add('off');$('studio-render').disabled=true;const cb=document.querySelector('input[name=engine][value=chatterbox]');if(cb){cb.disabled=true;cb.closest('label').title='Expressive voices need the desktop studio';}document.querySelector('input[name=engine][value=kokoro]').checked=true;if(!cloud)voicePath().then(p=>{$('voice-job').textContent=`Voices and lip sync are made on this device (${p==='webgpu'?'graphics card':'processor'}). The first time downloads the voice model, ${MODEL_MB[p]} MB, which your browser keeps.`;});$('studio-status').textContent='Studio-quality renders need the desktop engine. Use the browser export below.';$('browser-export-open')?.click();document.querySelector('.browser-export').open=true;}
+  }catch{server=null;loadLibrary();if(!restored)loadDemo();if(cloud)$('voice-job').textContent='Voices and lip sync are made by the cloud voice engine.';$('engine-pill').textContent='● Online studio';$('engine-pill').classList.add('off');$('studio-render').disabled=true;const cb=document.querySelector('input[name=engine][value=chatterbox]');if(cb){cb.disabled=true;cb.closest('label').title='Expressive voices need the desktop studio';}document.querySelector('input[name=engine][value=kokoro]').checked=true;if(!cloud)voicePath().then(p=>{$('voice-job').textContent=`Voices and lip sync are made on this device (${p==='webgpu'?'graphics card':'processor'}). The first time downloads the voice model, ${MODEL_MB[p]} MB, which your browser keeps.`;});$('studio-status').textContent='Studio-quality renders need the desktop engine. Use the browser export below.';$('browser-export-open')?.click();document.querySelector('.browser-export').open=true;}
 })();
 $('generate-voices').onclick=async()=>{
   stop();const btn=$('generate-voices');btn.disabled=true;$('voice-progress').hidden=false;$('voice-progress').value=0;
@@ -206,10 +206,12 @@ $('randomize').onclick=()=>{const m=member(),look={...m.look};
 const LIP={oculus:'visemes',arkit:'ARKit face',vroid:'VRoid mouth',vrm:'VRM expressions',generic:'mouth shape',jaw:'jaw bone',none:'none'};
 // First visit online: open a finished, voiced demo reel, so Play shows the studio at its best straight away.
 async function loadDemo(){try{const r=await fetch('demo.ember.json');if(!r.ok)return;const p=validateProject(await r.json());selected=p.cues[0]?.id||0;castSel=p.cast[0].id;time=0;restore(p);}catch(e){console.warn('Demo film unavailable:',e.message);}}
-// Online cloud engine (set by the Pages build): woken as soon as the page opens so voices are ready in seconds.
-const cloud=globalThis.EMBER_API||null;
-function wakeCloud(){if(!cloud)return;$('voice-job').textContent='Voices and lip sync are made by the cloud voice engine in seconds.';
-  fetch(cloud+'/api/status').then(r=>r.ok&&r.json()).then(j=>{if(j?.cloud){$('engine-pill').textContent='● Online studio · cloud voices ready';}}).catch(()=>{});}
+// Online cloud engine (set by the Pages build). It is woken only when someone heads for voices (Voice tab, a new
+// script), so it is warm by the time they press Generate, while page views and the demo cost nothing.
+const cloud=globalThis.EMBER_API||null;let woke=0;
+function wakeCloud(){if(!cloud||server||Date.now()-woke<6e5)return;woke=Date.now();
+  fetch(cloud+'/api/status?warm_up=1').then(r=>r.ok&&r.json()).then(j=>{if(j?.cloud&&j.ready)$('engine-pill').textContent='● Online studio · cloud voices ready';}).catch(()=>{});}
+document.querySelector('[data-tab=voice]').addEventListener('click',wakeCloud);
 let library=[];
 // The library lives on the studio engine, or online in this browser (local-library.js answers the same requests).
 const libFetch=(path,init)=>server?fetch(path,init):libraryFetch(path,init);
@@ -321,7 +323,7 @@ const openScript=()=>{stop();$('script-text').value=toScript(project);$('script-
 $('script-open').onclick=openScript;$('script-open-2').onclick=openScript;
 document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>$(b.dataset.close).close());
 $('import-script').onclick=()=>{try{const parsed=parseScript($('script-text').value,project),cues=parsed.cues,last=cues.at(-1).end,duration=Math.min(90,Math.max(project.duration,Math.ceil(last+2.5)));
-  const p={...applyScript(project,parsed),duration};selected=cues[0].id;time=0;commit(p);$('script-dialog').close();toast('Script loaded. Open the Voice tab to give it voices.');document.querySelector('[data-tab=voice]').click();}catch(e){$('script-error').textContent=e.message;}};
+  const p={...applyScript(project,parsed),duration};selected=cues[0].id;wakeCloud();time=0;commit(p);$('script-dialog').close();toast('Script loaded. Open the Voice tab to give it voices.');document.querySelector('[data-tab=voice]').click();}catch(e){$('script-error').textContent=e.message;}};
 $('download-script').onclick=()=>download(new Blob([$('script-text').value],{type:'text/plain'}),fileBase()+'.script.txt');
 $('copy-prompt').onclick=async()=>{const prompt=writerPrompt(project,$('ai-topic').value.trim());
   try{await navigator.clipboard.writeText(prompt);toast('Prompt copied. Paste it into Claude, ChatGPT or Gemini.');}catch{$('script-text').value=prompt;toast('Clipboard blocked: the prompt is in the editor. Copy it from there.');}};

@@ -19,7 +19,7 @@ import soundfile as sf
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 RHUBARB = ROOT.parent / 'tools/Rhubarb-Lip-Sync-1.14.0-Linux/rhubarb'
 CB_PYTHON = ROOT.parent / '.venv-cb/bin/python'
-CACHE = ROOT / '.voice-cache'
+CACHE = pathlib.Path(os.environ.get('EMBER_VOICE_CACHE', ROOT / '.voice-cache'))  # the cloud engine points this at /tmp
 RATE = 24000
 KOKORO_SPEED = {'neutral': 1.0, 'happy': 1.04, 'sad': .9, 'angry': 1.08, 'surprised': 1.1, 'worried': 1.08, 'curious': .97, 'idea': 1.04}
 # Chatterbox (exaggeration, cfg_weight): higher exaggeration is more dramatic, lower cfg gives freer pacing.
@@ -36,25 +36,68 @@ def kokoro(text, voice, speed):
     lang = voice[0]
     if lang not in _pipelines:
         _pipelines[lang] = KPipeline(lang_code=lang, repo_id='hexgrad/Kokoro-82M')
-    audio, words, offset = [], [], 0.0
+    audio, words, mouth, offset = [], [], [], 0.0
     for result in _pipelines[lang](text, voice=voice, speed=speed):
         a = result.audio.numpy() if hasattr(result.audio, 'numpy') else np.asarray(result.audio)
         for tok in result.tokens or []:
             if tok.start_ts is not None and tok.end_ts is not None and tok.text.strip(' .,!?…'):
                 words.append([offset + tok.start_ts, offset + tok.end_ts, tok.text])
+        mouth += phoneme_mouths(result, offset)
         audio.append(a)
         offset += len(a) / RATE
-    return np.concatenate(audio).astype(np.float32), words
+    return np.concatenate(audio).astype(np.float32), words, mouth
 
-def trim(audio, words, pad=0.06):
-    """Cut leading/trailing silence so lines butt up naturally; shift word times to match."""
+# Mouth shapes from Kokoro's own phoneme timings, named like Rhubarb's (A closed … H tongue, X rest): exact and
+# instant, so Rhubarb is only needed for engines without timings (Chatterbox). Misaki phonemes: A=eɪ I=aɪ W=aʊ Y=ɔɪ O=oʊ.
+MOUTH = {**dict.fromkeys('pbm', 'A'), **dict.fromkeys('fv', 'G'), 'l': 'H', **dict.fromkeys('uʊwOQ', 'F'),
+         **dict.fromkeys('ɔɜɝɚɹrY', 'E'), **dict.fromkeys('ɑaIW', 'D'), **dict.fromkeys('ɛʌəɐæeAᵊ', 'C')}
+REST = set(' .,!?…;:—-"\'()')
+def phoneme_mouths(result, offset):
+    """[start, end, shape] per phoneme. pred_dur counts 1/40 s per phoneme after BOS (Kokoro's own timestamp rule)."""
+    if getattr(result, 'pred_dur', None) is None or not result.phonemes:
+        return []
+    d, ph = result.pred_dur.tolist(), result.phonemes
+    t, out = offset + 2 * max(0, d[0] - 3) / 80, []
+    for i, (p, n) in enumerate(zip(ph, d[1:])):
+        dur = n / 40
+        if p in 'ˈˌ':  # stress marks come before their vowel: take the next sound's shape
+            nxt = next((c for c in ph[i + 1:] if c not in 'ˈˌː'), ' ')
+            shape = 'X' if nxt in REST else MOUTH.get(nxt, 'B')
+        elif p == 'ː':  # length mark: the sound before it continues
+            shape = out[-1][2] if out else 'B'
+        elif p == ' ':  # word gap: speech flows on, unless it is a real pause
+            shape = 'X' if dur > .2 or not out else out[-1][2]
+        else:
+            shape = 'X' if p in REST else MOUTH.get(p, 'B')
+        out.append([t, t + dur, shape])
+        t += dur
+    return out
+
+def mouth_cues(spans, length):
+    """Viseme cues [[time, shape]] from phoneme spans: merged runs, rest only for real pauses."""
+    cues = [[0.0, 'X']] if not spans or spans[0][0] > .03 else []
+    for s, e, m in spans:
+        if m == 'X' and e - s < .05:
+            continue
+        if not cues or cues[-1][1] != m:
+            cues.append([round(min(length, max(0, s)), 3), m])
+    end = round(min(length, max((e for _, e, _ in spans), default=0)), 3)
+    if cues[-1][1] != 'X':
+        cues.append([end, 'X'])
+    # Drop flickers under 35 ms (lip closures stay: they read as consonants), then re-merge equal neighbours.
+    keep = [c for i, c in enumerate(cues) if i in (0, len(cues) - 1) or c[1] == 'A' or cues[i + 1][0] - c[0] >= .035]
+    return [c for i, c in enumerate(keep) if i == 0 or c[1] != keep[i - 1][1]]
+
+def trim(audio, words, pad=0.06, mouth=()):
+    """Cut leading/trailing silence so lines butt up naturally; shift word and mouth times to match."""
     level = np.abs(audio)
     loud = np.where(level > max(1e-4, level.max() * 0.02))[0]
     if not len(loud):
-        return audio, words
+        return audio, words, list(mouth)
     a, b = max(0, loud[0] - int(pad * RATE)), min(len(audio), loud[-1] + int(pad * RATE))
     shift = a / RATE
-    return audio[a:b], [[max(0, s - shift), max(0, e - shift), w] for s, e, w in words]
+    move = lambda spans: [[max(0, s - shift), max(0, e - shift), w] for s, e, w in spans]
+    return audio[a:b], move(words), move(mouth)
 
 def estimate_words(audio, text):
     """Word timings for engines without timestamps: spread the speech span by syllable weight."""
@@ -76,7 +119,7 @@ def visemes(wav_path, text):
 def reference_clip(voice):
     path = CACHE / f'ref_{voice}.wav'
     if not path.exists():
-        audio, _ = kokoro(REFERENCE_TEXT, voice, 1.0)
+        audio, _, _ = kokoro(REFERENCE_TEXT, voice, 1.0)
         sf.write(path, audio, RATE, subtype='PCM_16')
     return path
 
@@ -95,7 +138,7 @@ def chatterbox_batch(jobs):
     if proc.wait() != 0:
         sys.exit('Chatterbox failed. See the log above.')
 
-def finish_take(key, raw_path, text, words):
+def finish_take(key, raw_path, text, words, mouth=None):
     audio, sr = sf.read(raw_path, dtype='float32')
     if audio.ndim > 1:
         audio = audio.mean(axis=1)
@@ -103,16 +146,17 @@ def finish_take(key, raw_path, text, words):
         idx = np.arange(0, len(audio), sr / RATE)
         audio = np.interp(idx, np.arange(len(audio)), audio).astype(np.float32)
     if words is None:
-        audio, _ = trim(audio, [])
+        audio, _, _ = trim(audio, [])
         words = estimate_words(audio, text)
     else:
-        audio, words = trim(audio, words)
+        audio, words, mouth = trim(audio, words, mouth=mouth or ())
     peak = np.abs(audio).max()
     if peak > 0:
         audio = audio * (0.89 / peak)
     wav_path = CACHE / f'{key}.wav'
     sf.write(wav_path, audio, RATE, subtype='PCM_16')
-    meta = {'words': [[round(s, 3), round(e, 3), w] for s, e, w in words], 'visemes': visemes(wav_path, text)}
+    cues = mouth_cues(mouth, len(audio) / RATE) if mouth else visemes(wav_path, text)
+    meta = {'words': [[round(s, 3), round(e, 3), w] for s, e, w in words], 'visemes': cues}
     (CACHE / f'{key}.json').write_text(json.dumps(meta))
 
 class VoiceError(Exception):
@@ -131,16 +175,16 @@ def voice_project(project, layout='flow', lead=None, tail=1.6, report=progress):
     for i, cue in enumerate(cues):
         voice, emotion = voices[cue['speaker']], cue.get('emotion', 'neutral')
         style = KOKORO_SPEED.get(emotion, 1.0) if engine == 'kokoro' else CB_STYLE.get(emotion, (.5, .5))
-        key = hashlib.sha256(json.dumps([engine, cue['text'], voice, style, 2]).encode()).hexdigest()[:16]
+        key = hashlib.sha256(json.dumps([engine, cue['text'], voice, style, 3 if engine == 'kokoro' else 2]).encode()).hexdigest()[:16]
         keys.append(key)
         if (CACHE / f'{key}.json').exists():
             report(i + 1, total, f"cached {cue['speaker']}: {cue['text']}")
             continue
         if engine == 'kokoro':
-            audio, words = kokoro(cue['text'], voice, style)
+            audio, words, mouth = kokoro(cue['text'], voice, style)
             raw = CACHE / f'{key}.raw.wav'
             sf.write(raw, audio, RATE, subtype='PCM_16')
-            finish_take(key, raw, cue['text'], words)
+            finish_take(key, raw, cue['text'], words, mouth)
             report(i + 1, total, f"voiced {cue['speaker']}: {cue['text']}")
         else:
             report(i, total, f"preparing {cue['speaker']} voice")

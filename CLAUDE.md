@@ -1,7 +1,7 @@
 # Ember Take studio
 
 A local 3D reel studio: three.js scenes drawn by code, free local voices (Kokoro, or Chatterbox for
-expressive delivery), Rhubarb lip sync, and ffmpeg mastering. No paid services.
+expressive delivery), lip sync from Kokoro's phoneme timings (Rhubarb for Chatterbox), and ffmpeg mastering. No paid services.
 
 ## Writing and rendering an episode
 
@@ -65,7 +65,8 @@ CLAUDE [neutral, think, stand, pause=0.6]: You did. Four minutes ago.
 - `worlds.js` — the desk room's surroundings (`deskAtmosphere`: window view, sky, string lights, particles), nature worlds (forest/meadow/snow) and custom worlds (360° background, imported .glb scene).
 - `scene.js` — three.js set, cast layout, 360° camera presets and custom angles, post (DOF, bloom, grade), captions.
 - `audio.js` — generated score, sound effects, ambient bed per world, voice ducking.
-- `pipeline/voice.py` — Kokoro/Chatterbox voices, silence trim, word timings, Rhubarb visemes (cached in `.voice-cache`).
+- `pipeline/voice.py` — Kokoro/Chatterbox voices, silence trim, word timings, visemes from Kokoro's phoneme durations (Rhubarb only for Chatterbox), cached in `.voice-cache`; `voice_project()` is also the cloud engine's core.
+- `backend/` — cloud voice engine for the online studio: `engine_api.py` (FastAPI over `voice_project`, streamed progress), `Dockerfile` (AWS Lambda image), `guard.py` (cost guard), `aws.sh` (deploy/stop/start/status/usage/destroy, personal profile only).
 - `scripts/render-chrome.mjs` — headless Chrome WebGL frames → ffmpeg, two-pass −14 LUFS.
 - `server.mjs` — studio UI at http://localhost:8765 plus `/api/voice` and `/api/render` jobs.
 - `scripts/build-pages.mjs` — static build in `site/` (sets `window.EMBER_STATIC`); `.github/workflows/pages.yml` tests and deploys it to GitHub Pages on every push to `main`. With no server the browser is the engine:

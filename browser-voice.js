@@ -86,7 +86,7 @@ export async function voiceProject(project,layout,onProgress,synth=null){
   return p;
 }
 
-// The cloud engine (backend/modal_app.py): the desktop pipeline itself, streamed back as NDJSON progress lines and
+// The cloud engine (backend/engine_api.py): the desktop pipeline itself, streamed back as NDJSON progress lines and
 // then the voiced project. Throws on any failure so the caller can fall back to voicing on this device.
 export async function cloudVoice(base,project,layout,onProgress){
   const sent={...project,voiceData:null,musicData:null};

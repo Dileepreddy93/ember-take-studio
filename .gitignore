@@ -7,3 +7,7 @@ dist/render.html
 .jobs/
 library/
 site/
+
+# Python runtime artifacts
+__pycache__/
+*.py[cod]

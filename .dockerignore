@@ -1,0 +1,6 @@
+*
+!backend/
+!backend/**
+!pipeline/
+!pipeline/voice.py
+backend/__pycache__/
