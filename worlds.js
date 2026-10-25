@@ -169,3 +169,106 @@ export function buildCustomWorld(renderer,o,assets,{loadGLTF,loadImage,loadHDR},
     world.groundY=hit?hit.point.y:box.min.y;catcher.position.y=world.groundY+.005;onGround?.(world.groundY);}));
   world.ready=Promise.all(jobs);return world;
 }
+
+// Desk room surroundings, all from settings: the window's view (city, mountains, ocean, forest, space or a plain wall),
+// sky colours, string lights and their colour, and particles inside the room (motes, dust, fireflies, pollen) or
+// outside the glass (snow, rain, leaves). Palettes by time of day also drive the desk lighting.
+export const DESK_TIMES={
+  night:{sky:['#040817','#0c1840','#1f3370'],city:'#080e24',cityFar:'#121d44',lit:.5,win:'#ffc985',frame:'#0a0f24',desk:'#8a7c8c',land:['#0b1230','#141f45','#1d2b5a'],sea:'#0a1433',orb:'moon',hemi:['#4c66b8','#1d140f',.95],key:['#ffb06a',3.6],rim:['#7d98ff',2.4],rim2:['#ff9a5a',1.4],fill:['#5b74c9',.55],lamp:46,screen:22,bg:'#070d24',fog:['#0b1434',.011],exposure:1.08,bulbs:1,stars:1,motes:1,wall:'#151a33'},
+  golden:{sky:['#33325f','#b8667e','#ffae66'],city:'#38263a',cityFar:'#7c5466',lit:.16,win:'#ffd9a0',frame:'#2b1d1d',desk:'#ffffff',land:['#4a2f45','#7a4a5a','#b06a68'],sea:'#6a4a6a',orb:'sun',hemi:['#ffcfa6','#6a4630',1.7],key:['#ffcb8a',4.3],rim:['#ff914d',3.4],rim2:['#ffb070',1.6],fill:['#82bbd4',1.2],lamp:26,screen:16,bg:'#2a1d2a',fog:['#3a2833',.012],exposure:1.1,bulbs:.75,stars:0,motes:.8,wall:'#5a3b36'},
+  morning:{sky:['#7fb0e6','#b8d4f0','#eef2f2'],city:'#7a8ca6',cityFar:'#a8b8cc',lit:0,win:'#ffffff',frame:'#e6e2da',desk:'#f4eee8',land:['#5f7f6a','#87a38f','#b4c8c4'],sea:'#5d8fb8',orb:null,hemi:['#dcebff','#8a6a50',2.3],key:['#fff1dc',4.6],rim:['#ffe2b8',1.8],rim2:['#ffffff',.8],fill:['#a8c8e8',1.4],lamp:8,screen:14,bg:'#bccfe2',fog:['#c6d5e3',.009],exposure:1.04,bulbs:0,stars:0,motes:.6,wall:'#d8d0c4'}
+};
+// Default particles per time when the world does not choose its own.
+export const deskParticles=time=>time==='morning'?['dust']:['motes'];
+// Generated textures are cached by their settings: rebuilding the room for a prop or light change reuses the sky and
+// view layers instead of redrawing and re-uploading them. Cached textures are never disposed with a world.
+const TEX=new Map();
+function memo(key,make){let v=TEX.get(key);if(v){TEX.delete(key);TEX.set(key,v);return v;}v=make();for(const t of [].concat(v))if(t)t.userData.cached=true;TEX.set(key,v);
+  if(TEX.size>24){const [k,old]=TEX.entries().next().value;TEX.delete(k);for(const t of [].concat(old))t?.dispose();}return v;}
+// Paints sharp, then blurs once (a blur filter on every small shape is far slower).
+function softTex(cw,ch,soft,paint){return canvasTex(cw,ch,x=>{const c=document.createElement('canvas');c.width=cw;c.height=ch;paint(c.getContext('2d'));x.filter=soft?`blur(${soft}px)`:'none';x.drawImage(c,0,0);});}
+export function deskAtmosphere(time,w={}){
+  const T={...(DESK_TIMES[time]||DESK_TIMES.golden)};if(w.sky)T.sky=w.sky;if(w.glow)T.win=w.glow;
+  if(w.view==='space')Object.assign(T,{sky:w.sky||['#010208','#050a1c','#0b1230'],stars:1,lit:T.lit});
+  const view=w.view||'city',parts=new Set(w.particles??deskParticles(time)),group=new THREE.Group(),r=rng(19),anim=[],basic=o=>new THREE.MeshBasicMaterial({fog:false,depthWrite:false,transparent:true,...o});
+  const hdr=(hex,k)=>new THREE.Color(hex).multiplyScalar(k),winRGB=hdr(T.win,2.4);
+  const glowTex=memo('glow',()=>canvasTex(64,64,(x)=>{const g=x.createRadialGradient(32,32,0,32,32,32);g.addColorStop(0,'rgba(255,255,255,1)');g.addColorStop(.3,'rgba(255,255,255,.5)');g.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=g;x.fillRect(0,0,64,64);}));
+  // Lens-bokeh disc: flat body with a soft, slightly brighter rim, so distant lights read as out of focus at any aperture.
+  const discTex=memo('disc',()=>canvasTex(64,64,(x)=>{const g=x.createRadialGradient(32,32,0,32,32,31);g.addColorStop(0,'rgba(255,255,255,.55)');g.addColorStop(.8,'rgba(255,255,255,.7)');g.addColorStop(.92,'rgba(255,255,255,.4)');g.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=g;x.fillRect(0,0,64,64);}));
+  // The planet's sun is present in every view (dark unless space) so the light count, and with it every shader, stays the same.
+  const sun=new THREE.DirectionalLight('#fff0dc',0);sun.position.set(-40,10,-20);group.add(sun,sun.target);
+  const outside=view!=='none';
+  if(outside){
+    // Sky: gradient, stars, and a low sun or moon (or a ringed planet from space).
+    const sky=new THREE.Mesh(new THREE.PlaneGeometry(320,140),basic({transparent:false,map:memo('sky|'+view+'|'+T.sky+'|'+T.stars+'|'+T.orb,()=>canvasTex(512,512,(x,cw,ch)=>{const g=x.createLinearGradient(0,0,0,ch);g.addColorStop(0,T.sky[0]);g.addColorStop(.55,T.sky[1]);g.addColorStop(1,T.sky[2]);x.fillStyle=g;x.fillRect(0,0,cw,ch);
+      if(T.stars){const s=rng(4);for(let i=0;i<(view==='space'?900:260);i++){x.fillStyle=`rgba(230,236,255,${.25+s()*.6})`;x.fillRect(s()*cw,s()*ch*(view==='space'?1:.6),s()<.1?2:1,s()<.1?2:1);}}
+      if(view==='space'){for(const [cx,cy,rad,c] of [[150,180,140,'rgba(120,70,200,.18)'],[380,300,180,'rgba(40,120,200,.16)']]){const n=x.createRadialGradient(cx,cy,0,cx,cy,rad);n.addColorStop(0,c);n.addColorStop(1,'rgba(0,0,0,0)');x.fillStyle=n;x.fillRect(0,0,cw,ch);}}
+      else if(T.orb){const [ox,oy,orr,c]=T.orb==='moon'?[330,120,14,'#f3efe0']:[300,400,30,'#ffe2b0'];const halo=x.createRadialGradient(ox,oy,orr*.5,ox,oy,orr*5);halo.addColorStop(0,T.orb==='moon'?'rgba(220,230,255,.35)':'rgba(255,220,160,.6)');halo.addColorStop(1,'rgba(0,0,0,0)');x.fillStyle=halo;x.fillRect(0,0,cw,ch);x.fillStyle=c;x.beginPath();x.arc(ox,oy,orr,0,Math.PI*2);x.fill();}}))}));
+    sky.position.set(0,26,-110);group.add(sky);
+    // Distance bands: silhouettes on a canvas, plus an additive HDR overlay for anything lit, softly pre-blurred so
+    // lights read as bokeh even before depth of field.
+    const band=(z,width,seed,soft,draw,lights)=>{const cw=2048,ch=512,H=width*ch/cw,y0=-8+H/2;
+      // Keyed by the layer's settings (draw functions carry their own colours and amounts in `key`).
+      const [tex,ltex]=memo(`band|${z}|${seed}|${soft}|${draw.key}|${lights?.key}`,()=>{const g=rng(seed),shapes=[];return [softTex(cw,ch,soft*.4,x=>draw(x,g,cw,ch,shapes)),lights?softTex(cw,ch,soft,x=>lights(x,g,shapes)):null];});
+      const m=new THREE.Mesh(new THREE.PlaneGeometry(width,H),basic({map:tex}));m.position.set(0,y0,z);group.add(m);
+      if(ltex){const l=new THREE.Mesh(new THREE.PlaneGeometry(width,H),basic({map:ltex,blending:THREE.AdditiveBlending}));l.material.color.copy(winRGB);l.position.set(0,y0,z+.05);group.add(l);}};
+    const keyed=(f,...k)=>Object.assign(f,{key:k.join(',')});
+    const city=(tall,color,lit)=>[keyed((x,g,cw,ch,blds)=>{let bx=0;while(bx<cw){const w=40+g()*120,h=ch*(.2+g()*.75)*tall;blds.push([bx,ch-h,w,h]);bx+=w+g()*14;}x.fillStyle=color;for(const [px,py,w,h] of blds){x.fillRect(px,py,w,h);if(g()<.3)x.fillRect(px+w*.4,py-18,4,18);}},'city',tall,color),
+      lit?keyed((x,g,blds)=>{for(const [px,py,w,h] of blds){const cols=Math.floor(w/14),rows=Math.floor(h/16);for(let i=0;i<cols;i++)for(let j=0;j<rows;j++)if(g()<lit){const v=.55+g()*.45;x.fillStyle=g()<.12?`rgba(170,210,255,${v})`:`rgba(255,${200+Math.floor(g()*40)},${120+Math.floor(g()*60)},${v})`;x.fillRect(px+4+i*14,py+7+j*16,9,11);}}},'lit',lit):null];
+    const ridge=(color,base,amp,rough,pines)=>keyed((x,g,cw,ch)=>{x.fillStyle=color;x.beginPath();x.moveTo(0,ch);let y=ch*base;const ph=g()*9;
+      for(let px=0;px<=cw;px+=8){y=ch*(base-amp*(.55*Math.sin(px/cw*6+ph)+.3*Math.sin(px/cw*17+ph*2)+rough*.15*Math.sin(px/cw*71+ph*3)));x.lineTo(px,y);
+        if(pines&&g()<.55){const h=18+g()*46;x.lineTo(px+4,y-h);x.lineTo(px+8,y);}}x.lineTo(cw,ch);x.closePath();x.fill();},'ridge',color,base,amp,rough,pines);
+    const L=T.land;
+    if(view==='city'){band(-95,240,31,2,...city(.45,T.cityFar,T.lit*.6));band(-70,150,23,3,...city(.65,T.cityFar,T.lit*.8));band(-48,110,17,4,...city(1,T.city,T.lit));}
+    else if(view==='mountains'){band(-100,260,41,3,ridge(L[2],.25,.22,1));band(-75,170,42,2,ridge(L[1],.42,.16,1));band(-50,120,43,2,ridge(L[0],.62,.1,1,true));}
+    else if(view==='forest'){band(-95,240,51,3,ridge(L[2],.5,.08,.5,true));band(-70,160,52,2,ridge(L[1],.6,.07,.5,true));band(-46,110,53,2,ridge(L[0],.72,.05,.5,true));}
+    else if(view==='ocean'){
+      // Sea: a band from the sill to the horizon with a shimmering path under the sun or moon.
+      const sea=new THREE.Mesh(new THREE.PlaneGeometry(320,26),basic({transparent:false,map:canvasTex(256,256,(x,cw,ch)=>{const g=x.createLinearGradient(0,0,0,ch);g.addColorStop(0,T.sky[2]);g.addColorStop(.06,T.sea);g.addColorStop(1,'#050814');x.fillStyle=g;x.fillRect(0,0,cw,ch);})}));sea.position.set(0,-4,-90);group.add(sea);
+      band(-80,200,61,3,ridge(L[1],.86,.05,.3));
+      for(let i=0;i<60;i++){const s2=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:T.orb?hdr(T.orb==='moon'?'#dfe8ff':'#ffd59a',1.6):hdr('#ffffff',.8),transparent:true,depthWrite:false,fog:false,blending:THREE.AdditiveBlending}));const d=r();s2.position.set(-6+(r()-.5)*(2+d*14),8.4-d*12,-88+d*6);s2.scale.set(.5+r()*1.4,.12,1);s2.userData.p=r()*9;group.add(s2);anim.push(t=>s2.material.opacity=.15+.6*Math.max(0,Math.sin(t*1.6+s2.userData.p*4)));}
+    }
+    else if(view==='space'){
+      const planet=new THREE.Mesh(new THREE.SphereGeometry(16,48,32),new THREE.MeshStandardMaterial({map:canvasTex(512,256,(x,cw,ch)=>{const g=rng(71);for(let i=0;i<ch;i+=4){x.fillStyle=`hsl(${18+g()*24},${45+g()*25}%,${30+g()*30}%)`;x.fillRect(0,i,cw,4+g()*6);}}),roughness:1,fog:false}));
+      planet.position.set(22,-6,-80);group.add(planet);sun.intensity=2.4;sun.target=planet;
+      const ring=new THREE.Mesh(new THREE.RingGeometry(20,29,96),new THREE.MeshBasicMaterial({color:'#c8a27a',transparent:true,opacity:.35,side:THREE.DoubleSide,fog:false,depthWrite:false}));ring.position.copy(planet.position);ring.rotation.set(1.25,.2,.3);group.add(ring);
+      anim.push(t=>{planet.rotation.y=t*.02;});
+    }
+    // Distant lights (street lamps, cars, stars, boats): big soft discs between the window and the view.
+    const lit=view==='city'?T.lit:view==='space'?.5:view==='mountains'||view==='forest'?T.lit*.3:0;
+    for(let i=0;i<(lit?34:0);i++){const s=new THREE.Sprite(new THREE.SpriteMaterial({map:discTex,color:new THREE.Color(r()<.7?T.win:r()<.5?'#ff6f6f':'#8fc6ff').multiplyScalar(1.4),transparent:true,depthWrite:false,fog:false,opacity:.55*(.5+r()*.5),blending:THREE.AdditiveBlending}));s.position.set(-30+r()*60,(view==='space'?0:-4)+r()*(view==='space'?20:9),-30-r()*14);s.scale.setScalar(.8+r()*2);s.userData.p=r()*6;group.add(s);anim.push(t=>s.material.opacity=.55*(.6+.4*Math.sin(t*.5+s.userData.p*3)));}
+  }
+  // Window wall: floor-to-ceiling glass with mullions, or (view=none) a plain wall with a soft pool of light.
+  const frame=new THREE.MeshStandardMaterial({color:T.frame,roughness:.8}),bar=(w,h,x,y)=>{const b=new THREE.Mesh(new THREE.BoxGeometry(w,h,.6),frame);b.position.set(x,y,-24);b.receiveShadow=true;group.add(b);};
+  if(outside){for(const x of [-21,-7,7,21])bar(.55,34,x,16);for(const y of [-.2,13.5,30])bar(70,.6,0,y);bar(14,34,-35,16);bar(14,34,35,16);}
+  else{const wall=new THREE.Mesh(new THREE.PlaneGeometry(90,40),new THREE.MeshStandardMaterial({color:T.wall,roughness:.95,map:canvasTex(256,256,(x,cw,ch)=>{const g=x.createRadialGradient(cw*.45,ch*.55,10,cw*.45,ch*.55,cw*.7);g.addColorStop(0,'#ffffff');g.addColorStop(1,'#8a8a8a');x.fillStyle=g;x.fillRect(0,0,cw,ch);})}));wall.position.set(0,18,-24);wall.receiveShadow=true;group.add(wall);}
+  // String lights: two sagging strands that sway and twinkle; bulbs are HDR so they bloom.
+  const bulbs=[],on=w.lights===false?0:Math.max(T.bulbs,view==='space'||view==='none'?.8:0),lc=w.lightColor||'#ffc070';
+  if(w.lights!==false)for(const [z,y,half,n,sag] of [[-10,10.6,14,11,2.2],[-17,12.5,21,15,2.8]]){
+    const strand=new THREE.Group(),pts=[];strand.position.set(0,y,z);group.add(strand);
+    for(let i=0;i<=40;i++){const u=i/40*2-1;pts.push(V(u*half,-sag*(1-u*u),0));}
+    strand.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts),60,.03,5),new THREE.MeshBasicMaterial({color:'#1a1410'})));
+    for(let i=0;i<n;i++){const u=(i+.5)/n*2-1,p=V(u*half,-sag*(1-u*u)-.22,0),c=new THREE.Color(lc).lerp(new THREE.Color('#ffffff'),i%4===3?.25:0);
+      const bulb=new THREE.Mesh(new THREE.SphereGeometry(.17,12,8),new THREE.MeshBasicMaterial({color:c.clone().multiplyScalar(6*on+.15)}));bulb.position.copy(p);strand.add(bulb);
+      const halo=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:c,transparent:true,depthWrite:false,opacity:.55*on,blending:THREE.AdditiveBlending}));halo.position.copy(p);halo.scale.setScalar(2.2);strand.add(halo);bulbs.push({bulb,halo,c,ph:r()*6});}
+    anim.push(t=>{strand.rotation.x=Math.sin(t*.45+z)*.025;strand.rotation.z=Math.sin(t*.31+z)*.006;});
+  }
+  if(on)anim.push(t=>{for(const b of bulbs){const k=.88+.12*Math.sin(t*1.7+b.ph*5)*Math.sin(t*.43+b.ph);b.bulb.material.color.copy(b.c).multiplyScalar(6*on*k);b.halo.material.opacity=.55*on*k;}});
+  // Particles. Inside: drifting motes around the cast and near the lens. Outside the glass: snow, rain, leaves.
+  const points=(n,color,size,place)=>{const g=new THREE.BufferGeometry(),p=new Float32Array(n*3),c=new Float32Array(n*3);g.setAttribute('position',new THREE.BufferAttribute(p,3));g.setAttribute('color',new THREE.BufferAttribute(c,3));
+    group.add(new THREE.Points(g,new THREE.PointsMaterial({map:glowTex,size,vertexColors:true,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending})));const base=new THREE.Color(color),seeds=[...Array(n)].map(()=>[r(),r(),r(),r()]);
+    anim.push(t=>{for(let i=0;i<n;i++){const [x,y,z,br]=place(t,...seeds[i]);p[i*3]=x;p[i*3+1]=y;p[i*3+2]=z;c[i*3]=base.r*br;c[i*3+1]=base.g*br;c[i*3+2]=base.b*br;}g.attributes.position.needsUpdate=g.attributes.color.needsUpdate=true;});};
+  const rise=(amp,speed=1,spread=1)=>(t,a,b,cc,d)=>{const u=(b+t*(.006+.012*cc)*speed)%1;return [-11*spread+a*22*spread+Math.sin(t*.17+d*9)*.9,.3+u*10,-9+d*16+Math.cos(t*.13+a*7)*.6,amp*Math.sin(Math.PI*u)*(.6+.4*Math.sin(t*.9+d*20))];};
+  const A=T.motes||.6;
+  if(parts.has('motes')){points(150,'#ffdcaa',.09,rise(A));points(26,'#ff5a5a',.13,rise(A*.9));points(18,'#a8dcff',.11,rise(A*.7));}
+  if(parts.has('dust'))points(220,'#fff1d6',.05,rise(.7,.5,.8));
+  if(parts.has('pollen'))points(140,'#fff2a8',.08,rise(.8,1.4));
+  if(parts.has('fireflies'))points(60,'#d8ff7a',.16,(t,a,b,cc,d)=>{const ang=a*PI*2+t*(.08+b*.1);return [Math.sin(ang)*(3+cc*8),1+b*6+Math.sin(t*.9+a*7)*.4,Math.cos(ang)*(2+cc*5)-3,Math.max(0,Math.sin(t*(1.2+d)+a*20))**3*1.6];});
+  const out=(n,color,size,speed,drift)=>points(n,color,size,(t,a,b,cc,d)=>{const u=(t*speed*(.7+b*.6)+a)%1;return [-28+cc*56+Math.sin(t*.7+d*9)*drift,22-u*26,-26-d*16,.8];});
+  if(parts.has('snow'))out(900,'#ffffff',.16,.05,.8);
+  if(parts.has('leaves'))out(160,'#e39a3a',.24,.04,2);
+  if(parts.has('rain')){const n=1400,rg=new THREE.BufferGeometry(),rp=new Float32Array(n*6),seeds=[...Array(n)].map(()=>[r(),r(),r()]);rg.setAttribute('position',new THREE.BufferAttribute(rp,3));
+    group.add(new THREE.LineSegments(rg,new THREE.LineBasicMaterial({color:'#b8c8dc',transparent:true,opacity:.4,depthWrite:false,fog:false})));
+    anim.push(t=>{for(let i=0;i<n;i++){const [a,b,c]=seeds[i],y=22-((t*(14+b*5)+a*26)%26),x=-28+c*56,z=-26-b*16;rp.set([x,y,z,x-.08,y-.9,z],i*6);}rg.attributes.position.needsUpdate=true;});}
+  return {group,T,animate:t=>{for(const a of anim)a(t);},dispose:()=>group.traverse(o=>{o.geometry?.dispose();if(o.material)for(const m of [].concat(o.material)){if(!m.map?.userData.cached)m.map?.dispose();m.dispose();}})};
+}

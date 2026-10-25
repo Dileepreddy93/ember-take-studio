@@ -8,12 +8,12 @@ import {BokehPass} from 'three/examples/jsm/postprocessing/BokehPass.js';
 import {GTAOPass} from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import {ShaderPass} from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import {OutputPass} from 'three/examples/jsm/postprocessing/OutputPass.js';
-import {poseAt,planShots,stanceAt,mouthAt,faceAt,actionAt,screenAt,wordAt,beatAt,clamp,smooth,lerp} from './dist/timeline.js';
+import {poseAt,planShots,stanceAt,sitAt,sitsInFilm,mouthAt,faceAt,actionAt,screenAt,wordAt,beatAt,clamp,smooth,lerp} from './dist/timeline.js';
 import {buildCharacter,animateCharacter,drawFace,headWorld,disposeCharacter} from './characters.js';
 import {SoftwareRenderer} from './software-renderer.js';
 import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
 import {MeshoptDecoder} from 'three/examples/jsm/libs/meshopt_decoder.module.js';
-import {buildNature,buildCustomWorld} from './worlds.js';
+import {buildNature,buildCustomWorld,deskAtmosphere} from './worlds.js';
 import {DRACOLoader} from 'three/examples/jsm/loaders/DRACOLoader.js';
 import {KTX2Loader} from 'three/examples/jsm/loaders/KTX2Loader.js';
 import {HDRLoader} from 'three/examples/jsm/loaders/HDRLoader.js';
@@ -27,7 +27,9 @@ function sphere(parent,r,mat,x,y,z,segments=12){const o=new THREE.Mesh(new THREE
 function group(parent,x=0,y=0,z=0){const o=new THREE.Group();o.position.set(x,y,z);parent.add(o);return o;}
 function cyl(parent,a,b,h,mat,x,y,z,n=10){const o=new THREE.Mesh(new THREE.CylinderGeometry(a,b,h,n),mat);o.position.set(x,y,z);o.castShadow=true;o.receiveShadow=true;parent.add(o);return o;}
 function line(parent,points,color,r=.018){const c=new THREE.CatmullRomCurve3(points.map(p=>new THREE.Vector3(...p)));const o=new THREE.Mesh(new THREE.TubeGeometry(c,14,r,6,false),material(color));parent.add(o);return o;}
-function label(text,size=128,color='#ddd8ca',bg=null){const c=document.createElement('canvas');c.width=512;c.height=256;const x=c.getContext('2d');if(bg){x.fillStyle=bg;x.fillRect(0,0,512,256)}x.fillStyle=color;x.font=`600 ${size}px Arial`;x.textAlign='center';x.textBaseline='middle';x.fillText(text,256,130);const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;return t;}
+// Text textures are cached (the keyboard alone needs dozens) and survive set rebuilds.
+const LABELS=new Map();
+function label(text,size=128,color='#ddd8ca',bg=null){const key=[text,size,color,bg].join('|');if(LABELS.has(key))return LABELS.get(key);const c=document.createElement('canvas');c.width=512;c.height=256;const x=c.getContext('2d');if(bg){x.fillStyle=bg;x.fillRect(0,0,512,256)}x.fillStyle=color;x.font=`600 ${size}px Arial`;x.textAlign='center';x.textBaseline='middle';x.fillText(text,256,130);const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;t.userData.cached=true;LABELS.set(key,t);return t;}
 
 // Film looks: a colour grade per look (contrast, saturation, lift/gain tint, fade, mono, chromatic split, scanlines, grain).
 export const FILM_LOOKS={
@@ -58,13 +60,22 @@ export const PRESETS={
   single:{yaw:12,pitch:9,dist:6.4,lens:60,ap:.0025},cu:{yaw:8,pitch:5,dist:3.5,lens:66,ap:.0045},
   ots:{yaw:48,pitch:5,dist:5,lens:64,ap:.0042},custom:{yaw:0,pitch:8,dist:4,lens:50,ap:.0035}
 };
+const MONITOR={x:3.1,y:3.6,z:-5.4,yaw:-.2,s:.76};
+// Desk top: warm wood with long grain and a few darker boards.
+let WOOD=null;
+function woodGrain(){if(WOOD)return WOOD;const c=document.createElement('canvas');c.width=512;c.height=512;const x=c.getContext('2d');x.fillStyle='#4e3a2f';x.fillRect(0,0,512,512);for(let b=0;b<8;b++){x.fillStyle=`rgba(${b%3?40:20},${b%3?26:14},${b%3?18:10},${.12+(b*.37%1)*.18})`;x.fillRect(0,b*64,512,64);x.fillStyle='rgba(0,0,0,.35)';x.fillRect(0,b*64,512,1.5);}
+  for(let i=0;i<260;i++){const y=(i*97.3)%512,a=Math.sin(i*12.9)*6;x.strokeStyle=i%2?'rgba(30,18,12,.22)':'rgba(120,88,62,.14)';x.lineWidth=.6+(i%5)*.35;x.beginPath();x.moveTo(0,y);x.bezierCurveTo(170,y+a,340,y-a,512,y+a*.4);x.stroke();}
+  const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(7,4);t.anisotropy=8;t.userData.cached=true;return WOOD=t;}
 const softShadow=(()=>{let tex=null;return ()=>{if(tex)return tex;const sc=document.createElement('canvas');sc.width=sc.height=128;const sx=sc.getContext('2d'),sg=sx.createRadialGradient(64,64,8,64,64,64);sg.addColorStop(0,'rgba(12,14,20,.64)');sg.addColorStop(.4,'rgba(12,14,20,.35)');sg.addColorStop(1,'rgba(12,14,20,0)');sx.fillStyle=sg;sx.fillRect(0,0,128,128);return tex=new THREE.CanvasTexture(sc);};})();
 
 export class FilmScene{
   constructor(canvas,project,options={}){
-    this.loadAsset=options.loadAsset||(id=>fetch(`/library/${id}/model`).then(r=>{if(!r.ok)throw Error(`Character file ${id} is not in the library.`);return r.arrayBuffer();}));this.onUpdate=options.onUpdate||null;this.vendorPath=options.vendorPath||'/vendor/';this.assets=new Map();this.ready=Promise.resolve();this.worldReady=Promise.resolve();
-    this.canvas=canvas;this.project=project;this.w=540;this.h=960;this.time=0;this.manual=false;this.screenRevision=0;this.focus=null;this.previewCam=null;this.rigs=[];this.castKey='';
-    if(options.software){this.renderer=new SoftwareRenderer();}else{try{this.renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,preserveDrawingBuffer:true,powerPreference:'high-performance'});}catch{this.renderer=new SoftwareRenderer();}}this.renderer.setPixelRatio(1);this.renderer.setSize(540,960);this.renderer.shadowMap.enabled=true;this.renderer.shadowMap.type=THREE.PCFSoftShadowMap;this.renderer.toneMapping=THREE.ACESFilmicToneMapping;this.renderer.toneMappingExposure=1.13;
+    this.loadAsset=options.loadAsset||(id=>fetch(`/library/${id}/model`).then(r=>{if(!r.ok)throw Error(`Character file ${id} is not in the library.`);return r.arrayBuffer();}));this.onUpdate=options.onUpdate||null;this.vendorPath=options.vendorPath||'./vendor/';this.assets=new Map();this.ready=Promise.resolve();this.worldReady=Promise.resolve();
+    this.canvas=canvas;this.project=project;this.w=540;this.h=960;this.time=0;this.manual=false;this.screenRevision=0;this.focus=null;this.previewCam=null;this.rigs=[];this.castKey='';this.trash=[];
+    if(options.software){this.renderer=new SoftwareRenderer();}else{try{this.renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,preserveDrawingBuffer:true,powerPreference:'high-performance'});}catch{this.renderer=new SoftwareRenderer();}}this.renderer.setPixelRatio(1);this.renderer.setSize(540,960);
+    // Skip the synchronous shader error check after each compile: it stalls the page for seconds whenever a set or cast
+    // is rebuilt (three.js recommends it off in production).
+    if(this.renderer.debug)this.renderer.debug.checkShaderErrors=false;this.renderer.shadowMap.enabled=true;this.renderer.shadowMap.type=THREE.PCFSoftShadowMap;this.renderer.toneMapping=THREE.ACESFilmicToneMapping;this.renderer.toneMappingExposure=1.13;
     this.out=canvas.getContext('2d',{alpha:false});this.scene=new THREE.Scene();this.world=null;this.worldKey='';
     this.camera=new THREE.PerspectiveCamera(36,9/16,.1,100);this.controls=options.headless?{target:new THREE.Vector3(),update(){},dispose(){}}:new OrbitControls(this.camera,canvas);this.controls.enabled=false;this.controls.enableDamping=false;this.controls.target.set(0,2,0);this.controls.minDistance=2;this.controls.maxDistance=22;this.controls.maxPolarAngle=PI*.49;
     this.cast=group(this.scene);
@@ -77,27 +88,39 @@ export class FilmScene{
       this.grade=new ShaderPass(GRADE);this.composer.addPass(this.grade);}
     this.setProject(project);this.seek(0);
   }
-  makeSet(){
-    const wood=material('#594237',{roughness:.9}),edge=material('#292e31',{metalness:.35}),key=material('#b9b3a1',{roughness:.7}),keyDark=material('#58686b');
-    box(this.set,16,.55,10,wood,0,-.55,-.4,.18);box(this.set,13,.25,6.1,edge,0,-.12,-.1,.18);
-    for(let row=0;row<5;row++)for(let col=0;col<13;col++){
-      const x=(col-6)*.89+(row%2)*.14,z=(row-2)*.89;
-      const k=box(this.set,.79,.28,.74,(col===0||col===12)?keyDark:key,x,.12,z,.075);
-      if(row<2||col<4||col>8){const tx=label('QWERTYUIOPASDFGHJKLZXCVBNM'[(row*13+col)%26],90,'#494e4d');const t=new THREE.Mesh(new THREE.PlaneGeometry(.25,.125),new THREE.MeshBasicMaterial({map:tx,transparent:true,depthWrite:false}));t.rotation.x=-PI/2;t.position.set(x,.266,z-.06);this.set.add(t);}
-    }
-    box(this.set,3.8,.25,.69,material('#a9957a'),0,.12,2.67,.06);
-    // Large tactile render key, operated by Mica in the last act.
-    this.renderKey=box(this.set,1.2,.33,1.1,material('#e79d58'),2.65,.16,1.85,.09);const keyText=new THREE.Mesh(new THREE.PlaneGeometry(.92,.46),new THREE.MeshBasicMaterial({map:label('GO',95,'#4b3222'),transparent:true}));keyText.rotation.x=-PI/2;keyText.position.set(2.65,.334,1.85);this.set.add(keyText);this.renderKeyLabel=keyText;
-    const monitor=group(this.set,0,4.3,-4.4);box(monitor,11.8,6.9,.38,material('#262e35'),0,0,0,.23);box(monitor,11.5,6.6,.1,material('#0a1119'),0,0,.21,.14);
-    this.screenCanvas=document.createElement('canvas');this.screenCanvas.width=1600;this.screenCanvas.height=900;this.screenCtx=this.screenCanvas.getContext('2d');this.screenTexture=new THREE.CanvasTexture(this.screenCanvas);this.screenTexture.colorSpace=THREE.SRGBColorSpace;const sm=new THREE.MeshBasicMaterial({map:this.screenTexture});const sp=new THREE.Mesh(new THREE.PlaneGeometry(11.13,6.22),sm);sp.position.set(0,.06,.278);monitor.add(sp);sphere(monitor,.045,material('#d3bd81',{emissive:'#a68955',emissiveIntensity:1}),0,-3.28,.25,8);box(this.set,.8,1.5,.45,edge,0,.3,-4.7,.08);
-    // A desk lamp and physical props create scale and depth.
-    const lamp=group(this.set,-8.6,0,-4.6);cyl(lamp,.65,.8,.15,edge,0,0,0,24);line(lamp,[[0,0,0],[0,3,0],[.8,5,0],[1.5,5.1,0]],'#94795b',.08);const shade=new THREE.Mesh(new THREE.ConeGeometry(.75,.65,20,1,true),material('#bd9870',{side:THREE.DoubleSide}));shade.position.set(1.5,4.8,0);lamp.add(shade);sphere(lamp,.22,material('#ffe4ba',{emissive:'#ffca86',emissiveIntensity:3}),1.5,4.5,0);const ll=new THREE.PointLight('#ffb971',32,14,2);ll.position.set(1.5,4.4,0);lamp.add(ll);
-    const mug=group(this.set,6.5,0,0);cyl(mug,.7,.6,1.2,material('#417578'),0,.58,0,24);cyl(mug,.62,.62,.03,material('#251d16'),0,1.19,0,24);const handle=new THREE.Mesh(new THREE.TorusGeometry(.38,.13,8,20),material('#417578'));handle.position.set(.72,.7,0);mug.add(handle);
-    // Soft, deliberately out-of-focus practical lights in the distance.
-    const gc=document.createElement('canvas');gc.width=64;gc.height=64;const gx=gc.getContext('2d'),gr=gx.createRadialGradient(32,32,1,32,32,32);gr.addColorStop(0,'rgba(255,220,166,.8)');gr.addColorStop(.22,'rgba(255,175,92,.24)');gr.addColorStop(1,'rgba(255,175,92,0)');gx.fillStyle=gr;gx.fillRect(0,0,64,64);const gt=new THREE.CanvasTexture(gc);
-    for(let i=0;i<26;i++){const s=new THREE.Sprite(new THREE.SpriteMaterial({map:gt,color:i%3?'#d79a62':'#86a7b3',transparent:true,depthWrite:false,opacity:.45,blending:THREE.AdditiveBlending}));s.position.set(Math.sin(i*13.1)*16,2+((i*7)%15),-9-Math.abs(Math.cos(i*8))*15);s.scale.setScalar(.4+(i%4)*.4);this.scene.add(s);}
-    const geo=new THREE.BufferGeometry(),pos=[];for(let i=0;i<100;i++)pos.push(Math.sin(i*37)*13,1+(i%39)*.25,Math.cos(i*17)*10);geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));this.dust=new THREE.Points(geo,new THREE.PointsMaterial({size:.025,color:'#e6c998',transparent:true,opacity:.45,depthWrite:false}));this.scene.add(this.dust);
+  // The desk set from world settings: a keyboard or a plain table top, an optional monitor, and chosen props.
+  makeSet(w,T){
+    const wood=material(T.desk,{roughness:.82,map:woodGrain()}),edge=material('#292e31',{metalness:.35}),key=material('#b9b3a1',{roughness:.7}),keyDark=material('#58686b'),top=-.275;
+    box(this.set,90,.55,58,wood,0,-.55,4,.18);
+    if(w.surface==='keyboard'){box(this.set,13,.25,6.1,edge,0,-.12,-.1,.18);
+      for(let row=0;row<5;row++)for(let col=0;col<13;col++){
+        const x=(col-6)*.89+(row%2)*.14,z=(row-2)*.89;
+        box(this.set,.79,.28,.74,(col===0||col===12)?keyDark:key,x,.12,z,.075);
+        if(row<2||col<4||col>8){const tx=label('QWERTYUIOPASDFGHJKLZXCVBNM'[(row*13+col)%26],90,'#494e4d');const t=new THREE.Mesh(new THREE.PlaneGeometry(.25,.125),new THREE.MeshBasicMaterial({map:tx,transparent:true,depthWrite:false}));t.rotation.x=-PI/2;t.position.set(x,.266,z-.06);this.set.add(t);}
+      }
+      box(this.set,3.8,.25,.69,material('#a9957a'),0,.12,2.67,.06);}
+    // Large tactile key (the `press` action's target); on a table it is a big desk button.
+    const ky=w.surface==='table'?top+.16:.16;this.keyRest=[ky,ky+.174];
+    this.renderKey=box(this.set,1.2,.33,1.1,material('#e79d58'),2.65,ky,1.85,.09);const keyText=new THREE.Mesh(new THREE.PlaneGeometry(.92,.46),new THREE.MeshBasicMaterial({map:label('GO',95,'#4b3222'),transparent:true}));keyText.rotation.x=-PI/2;keyText.position.set(2.65,ky+.174,1.85);this.set.add(keyText);this.renderKeyLabel=keyText;
+    // The monitor stands off to one side, angled toward the cast, so the window stays open behind them.
+    const monitor=group(this.set,MONITOR.x,MONITOR.y,MONITOR.z);monitor.rotation.y=MONITOR.yaw;monitor.scale.setScalar(MONITOR.s);this.monitor=monitor;monitor.visible=w.monitor;box(monitor,11.8,6.9,.38,material('#262e35'),0,0,0,.23);box(monitor,11.5,6.6,.1,material('#0a1119'),0,0,.21,.14);
+    this.screenCanvas=document.createElement('canvas');this.screenCanvas.width=1600;this.screenCanvas.height=900;this.screenCtx=this.screenCanvas.getContext('2d');this.screenTexture=new THREE.CanvasTexture(this.screenCanvas);this.screenTexture.colorSpace=THREE.SRGBColorSpace;const sm=new THREE.MeshBasicMaterial({map:this.screenTexture});const sp=new THREE.Mesh(new THREE.PlaneGeometry(11.13,6.22),sm);sp.position.set(0,.06,.278);monitor.add(sp);sphere(monitor,.045,material('#d3bd81',{emissive:'#a68955',emissiveIntensity:1}),0,-3.28,.25,8);
+    if(w.monitor)box(this.set,.8,1.5,.45,edge,MONITOR.x+.05,.3,MONITOR.z-.3,.08);
+    // Props stand on the desk top and give the tiny cast a sense of scale.
+    const has=k=>w.props.includes(k),prop=(x,z)=>group(this.set,x,top,z);
+    if(has('lamp')){const lamp=prop(-8.6,-4.6);cyl(lamp,.65,.8,.15,edge,0,.075,0,24);line(lamp,[[0,0,0],[0,3,0],[.8,5,0],[1.5,5.1,0]],'#94795b',.08);const shade=new THREE.Mesh(new THREE.ConeGeometry(.75,.65,20,1,true),material('#bd9870',{side:THREE.DoubleSide}));shade.position.set(1.5,4.8,0);lamp.add(shade);sphere(lamp,.22,material('#ffe4ba',{emissive:'#ffca86',emissiveIntensity:3}),1.5,4.5,0);}
+    // The lamp's light exists with or without the lamp (dark without it): a constant light count means toggling props
+    // never forces every material's shader to recompile.
+    const ll=new THREE.PointLight('#ffb971',has('lamp')?T.lamp:0,14,2);ll.position.set(-7.1,top+4.4,-4.6);this.set.add(ll);
+    if(has('mug')){const mug=prop(6.5,0);cyl(mug,.7,.6,1.2,material('#417578'),0,.6,0,24);cyl(mug,.62,.62,.03,material('#251d16'),0,1.21,0,24);const handle=new THREE.Mesh(new THREE.TorusGeometry(.38,.13,8,20),material('#417578'));handle.position.set(.72,.72,0);mug.add(handle);}
+    if(has('plant')){const pl=prop(-6.2,1.4);cyl(pl,.62,.48,1,material('#c46f4a',{roughness:.8}),0,.5,0,20);cyl(pl,.58,.58,.04,material('#3a2a1e'),0,.98,0,20);const leaf=material('#4f8a4a',{roughness:.6});
+      for(let i=0;i<9;i++){const a=i*2.4,l=new THREE.Mesh(new THREE.SphereGeometry(.42,10,6),leaf);l.scale.set(.32,1,.12);l.position.set(Math.cos(a)*.3,1.6+(i%3)*.25,Math.sin(a)*.3);l.rotation.set(Math.sin(a)*.5,a,Math.cos(a)*.5);l.castShadow=true;pl.add(l);}}
+    if(has('books')){const bk=prop(-4.4,-3.2),cols=['#7a3b3b','#33506e','#c9a66b','#3f5f4a'];for(let i=0;i<4;i++){const b2=box(bk,2.2-i*.12,.32,1.5-i*.06,material(cols[i],{roughness:.85}),i*.05,.16+i*.32,0,.03);b2.rotation.y=(i%2?.08:-.06);}}
+    if(has('clock')){const ck=prop(8.6,-2.6);cyl(ck,.75,.75,.3,material('#d9cbb2'),0,.75,0,28).rotation.x=PI/2;const face=new THREE.Mesh(new THREE.CircleGeometry(.62,28),new THREE.MeshBasicMaterial({map:label('',10,'#000','#f6efe2')}));face.position.set(0,.75,.16);ck.add(face);
+      for(const [len,ang] of [[.4,.9],[.52,-1.1]]){const h=box(ck,.05,len,.02,material('#2a2420'),0,0,0,.01);h.position.set(Math.sin(ang)*len/2,.75+Math.cos(ang)*len/2,.18);h.rotation.z=-ang;}box(ck,.9,.12,.4,material('#b8a688'),0,.06,0,.03);}
   }
+  // Frees replaced sets and characters after the next frame has rendered (see buildWorld).
+  later(f){(this.trash||=[]).push(f);}
   // Worlds: the desk (built here) or another set from worlds.js. Rebuilt only when the set or time of day changes.
   // glTF loader with every decoder the import rules allow (Draco, KTX2/Basis, meshopt).
   makeLoader(){
@@ -107,7 +130,7 @@ export class FilmScene{
   asset(id){return this.assets.has(id)?Promise.resolve(this.assets.get(id)):this.loadAsset(id).then(buf=>{this.assets.set(id,buf);return buf;});}
   buildWorld(p){
     const key=JSON.stringify([p.set,p.timeOfDay,p.world]);if(key===this.worldKey)return;this.worldKey=key;
-    if(this.world){this.scene.remove(this.world.group);this.world.dispose?.();}
+    if(this.world){const old=this.world;this.scene.remove(old.group);this.later(()=>old.dispose?.());}
     const nature=['forest','meadow','snow'].includes(p.set)&&!this.renderer.isSoftware;this.worldReady=Promise.resolve();
     if(p.set==='custom'&&!this.renderer.isSoftware&&(p.world.backdrop||p.world.scene)){
       const load=async(id,kind)=>{if(!id)return null;const buf=await this.asset(id),sz=kind==='backdrop'?imageSize(buf):null;return {buf,file:sz?.type==='hdr'?'bg.hdr':'bg.img'};};
@@ -120,7 +143,7 @@ export class FilmScene{
         w.onEnvironment=()=>{if(this.world===w){this.scene.environment=w.environment;this.scene.background=w.background;this.scene.environmentIntensity=w.environmentIntensity;}};
         this.scene.remove(placeholder.group);placeholder.dispose();this.installWorld(w);return w.ready.then(()=>{w.onEnvironment();this.onUpdate?.();});
       }).catch(e=>{console.error('World failed to load:',e);this.worldError='World: '+e.message;this.onUpdate?.(Error('The imported world could not load: '+e.message));});
-    }else this.world=nature?buildNature(this.renderer,{preset:p.set,time:p.timeOfDay,...p.world}):this.deskWorld();
+    }else this.world=nature?buildNature(this.renderer,{preset:p.set,time:p.timeOfDay,...p.world}):this.deskWorld(p.timeOfDay,p.world);
     this.installWorld(this.world);
   }
   installWorld(w){
@@ -131,30 +154,45 @@ export class FilmScene{
   }
   // An imported scene's floor was found: stand everyone on it.
   regroundCast(y){for(const r of this.rigs){r.root.position.y=y;r.baseY=y;if(r.shadow)r.shadow.position.y=y+.015;}this.updateHeads();this.onUpdate?.();}
-  deskWorld(){
-    const g=new THREE.Group(),hemi=new THREE.HemisphereLight('#bfdaed','#77533d',2.1);g.add(hemi);
-    const key=new THREE.DirectionalLight('#ffdbad',4.5);key.position.set(-4,8,5);key.castShadow=true;key.shadow.mapSize.set(2048,2048);Object.assign(key.shadow.camera,{left:-9,right:9,top:10,bottom:-7,near:.5,far:30});key.shadow.normalBias=.035;key.shadow.bias=-.00025;key.shadow.radius=3;g.add(key);
+  deskWorld(time,w){
+    const air=deskAtmosphere(time,w),T=air.T,g=new THREE.Group(),hemi=new THREE.HemisphereLight(T.hemi[0],T.hemi[1],T.hemi[2]);g.add(hemi);g.add(air.group);
+    // Night: the warm key comes from the lamp side and the window throws cool rim light, as in a lit room after dark.
+    const key=new THREE.DirectionalLight(T.key[0],T.key[1]);key.position.set(time==='night'?5:-4,8,5);key.userData.base=T.key[1];key.castShadow=true;key.shadow.mapSize.set(2048,2048);Object.assign(key.shadow.camera,{left:-9,right:9,top:10,bottom:-7,near:.5,far:30});key.shadow.normalBias=.035;key.shadow.bias=-.00025;key.shadow.radius=3;g.add(key);
     // Warm rim from behind-left, as in the reference: it separates the characters from the dark set.
-    const rim=new THREE.DirectionalLight('#ff914d',3.4);rim.position.set(5,5,-4);g.add(rim);const rim2=new THREE.DirectionalLight('#ffb070',1.6);rim2.position.set(-6,4,-5);g.add(rim2);const fill=new THREE.DirectionalLight('#82bbd4',1.5);fill.position.set(4,3,5);g.add(fill);
-    const screenLight=new THREE.PointLight('#8bcecf',20,12,2);screenLight.position.set(0,4.5,-2.5);g.add(screenLight);
-    this.set=group(g);this.makeSet();this.set.traverse(o=>o.userData.staticLayer=true);this.renderKey.userData.staticLayer=false;this.renderKeyLabel.userData.staticLayer=false;
-    const dust=this.dust;
-    return {group:g,key,screenLight,screen:{canvas:this.screenCanvas,ctx:this.screenCtx,texture:this.screenTexture,style:'monitor'},renderKey:this.renderKey,renderKeyLabel:this.renderKeyLabel,keyRest:[.16,.334],
-      screenPoint:new THREE.Vector3(0,4.3,-4.15),keyPoint:new THREE.Vector3(2.65,.33,1.85),screenPose:{pos:new THREE.Vector3(.3,4.9,7.2),at:new THREE.Vector3(0,4.15,-4.4),fov:44,ap:.0018},groundY:.26,
-      background:new THREE.Color('#101c23'),fog:new THREE.FogExp2('#111d24',.023),environment:null,environmentIntensity:1,exposure:1.13,animate:t=>{dust.rotation.y=t*.006;},
-      dispose:()=>g.traverse(o=>{o.geometry?.dispose();if(o.material)for(const m of [].concat(o.material)){m.map?.dispose();m.dispose();}})};
+    const rim=new THREE.DirectionalLight(T.rim[0],T.rim[1]);rim.position.set(5,5,-4);g.add(rim);const rim2=new THREE.DirectionalLight(T.rim2[0],T.rim2[1]);rim2.position.set(-6,4,-5);g.add(rim2);const fill=new THREE.DirectionalLight(T.fill[0],T.fill[1]);fill.position.set(4,3,5);g.add(fill);
+    this.set=group(g);this.makeSet(w,T);this.set.updateMatrixWorld(true);const mon=(x,y,z)=>this.monitor.localToWorld(new THREE.Vector3(x,y,z));
+    const screenLight=new THREE.PointLight('#8bcecf',w.monitor?T.screen:0,12,2);screenLight.position.copy(mon(0,.26,2.4));g.add(screenLight);this.set.traverse(o=>o.userData.staticLayer=true);this.renderKey.userData.staticLayer=false;this.renderKeyLabel.userData.staticLayer=false;
+    return {group:g,key,screenLight,screen:{canvas:this.screenCanvas,ctx:this.screenCtx,texture:this.screenTexture,style:'monitor'},renderKey:this.renderKey,renderKeyLabel:this.renderKeyLabel,keyRest:this.keyRest,
+      screenPoint:mon(0,0,.32),keyPoint:new THREE.Vector3(2.65,this.keyRest[1],1.85),screenPose:w.monitor?{pos:mon(.38,.77,14.9),at:mon(0,-.19,0),fov:44,ap:.0018}:null,groundY:w.surface==='table'?-.275:.26,
+      background:new THREE.Color(T.bg),fog:new THREE.FogExp2(T.fog[0],T.fog[1]),environment:null,environmentIntensity:1,exposure:T.exposure,animate:air.animate,
+      dispose:()=>g.traverse(o=>{o.geometry?.dispose();if(o.material)for(const m of [].concat(o.material)){if(!m.map?.userData.cached)m.map?.dispose();m.dispose();}})};
   }
   // Rebuilds only the characters whose look changed, then lays the cast out along the keyboard.
   buildCast(p){
-    const key=JSON.stringify([p.characterStyle,this.worldKey,p.cast.map(c=>[c.id,c.kind,c.look,c.asset])]);if(key===this.castKey)return;this.castKey=key;
-    for(const r of this.rigs){this.cast.remove(r.root);this.cast.remove(r.shadow);if(r.imported)disposeImported(r);else if(!r.loading)disposeCharacter(r);}
+    const key=JSON.stringify([p.characterStyle,this.worldKey,p.cast.map(c=>[c.id,c.kind,c.look,c.asset,sitsInFilm(p,c.id)])]);if(key===this.castKey)return;this.castKey=key;
+    for(const r of this.rigs){this.cast.remove(r.root);this.cast.remove(r.shadow);this.later(()=>{if(r.imported)disposeImported(r);else if(!r.loading)disposeCharacter(r);});}
     const pending=[];
     const slots=LAYOUT[p.cast.length]||LAYOUT[4];
     this.rigs=p.cast.map((m,i)=>{const rig=m.kind==='imported'?this.importedPlaceholder(m,pending,key):buildCharacter(m,p.characterStyle),[x,z]=slots[i];const gy=this.world.groundY;rig.root.position.set(x,gy,z);rig.root.rotation.y=-x*.07;rig.baseYaw=rig.root.rotation.y;rig.baseY=gy;this.cast.add(rig.root);
-      const sh=new THREE.Mesh(new THREE.PlaneGeometry(2.1,1.6),new THREE.MeshBasicMaterial({map:softShadow(),transparent:true,depthWrite:false}));sh.rotation.x=-PI/2;sh.position.set(x,gy+.015,z+.05);sh.scale.setScalar(m.look.height*(m.kind==='bot'?1:m.look.build*.95));this.cast.add(sh);rig.shadow=sh;return rig;});
+      const sh=new THREE.Mesh(new THREE.PlaneGeometry(2.1,1.6),new THREE.MeshBasicMaterial({map:softShadow(),transparent:true,depthWrite:false}));sh.rotation.x=-PI/2;sh.position.set(x,gy+.015,z+.05);sh.scale.setScalar(m.look.height*(m.kind==='bot'?1:m.look.build*(m.kind==='mascot'?1.3:.95)));this.cast.add(sh);rig.shadow=sh;
+      if(!rig.imported&&!rig.loading&&sitsInFilm(p,m.id))rig.seatMesh=this.makeSeat(rig,p.set);return rig;});
     this.updateHeads();this.ready=Promise.all([...pending,this.worldReady]);
   }
-  updateHeads(){this.heads={};for(const r of this.rigs){r.root.updateMatrixWorld(true);this.heads[r.member.id]=r.imported?importedHeadWorld(r):r.loading?new THREE.Vector3(r.root.position.x,3,r.root.position.z):headWorld(r);}this.marks={};for(const r of this.rigs)this.marks[r.member.id]=this.landmarks(r);}
+  updateHeads(){this.heads={};for(const r of this.rigs){r.root.updateMatrixWorld(true);this.heads[r.member.id]=r.imported?importedHeadWorld(r):r.loading?new THREE.Vector3(r.root.position.x,3,r.root.position.z):headWorld(r);}this.marks={};for(const r of this.rigs)this.marks[r.member.id]=this.landmarks(r);this.baseHeads=this.heads;this.baseMarks=this.marks;}
+  // Seated characters are lower: shift their framing landmarks and eyeline points by how far the hips have dropped.
+  applySit(p,t){
+    this.heads={};this.marks={};
+    for(const r of this.rigs){const id=r.member.id;r.sit=r.imported||r.loading?0:sitAt(p,t,id);const drop=r.sit?r.sit*(r.plan.leg-r.seat.hip)*r.root.scale.y:0,b=this.baseMarks[id],h=this.baseHeads[id];
+      if(!b||!h)continue;this.heads[id]=drop?h.clone().setY(h.y-drop):h;this.marks[id]=drop?{...b,crown:b.crown-drop,eye:b.eye-drop,chin:b.chin-drop,shoulder:b.shoulder-drop,waist:b.waist-drop*.7}:b;}
+  }
+  // A seat behind the character's standing spot, sized to their legs: a stack of books on the desk, a stump outdoors.
+  makeSeat(rig,set){
+    const S=rig.seat,g=new THREE.Group(),w=rig.kind==='mascot'?1.3:rig.kind==='bot'?1:.95*rig.member.look.build;g.position.set(0,0,-S.back);rig.root.add(g);
+    if(set==='desk'){const cols=['#6e3b3b','#2f4c6a','#b89a62','#3e5b47'],n=3;for(let i=0;i<n;i++){const b2=box(g,w*(1.15-i*.06),S.top/n,.85-i*.04,material(cols[(i+rig.seed)%4],{roughness:.85}),i%2?.03:-.03,S.top/n*(i+.5),0,.02);b2.rotation.y=(i%2?.06:-.05);}}
+    else if(set==='custom')box(g,w*1.1,S.top,.85,material('#6b625a',{roughness:.9}),0,S.top/2,0,.04);
+    else{cyl(g,w*.6,w*.66,S.top,material('#6b4a33',{roughness:1}),0,S.top/2,0,14);cyl(g,w*.58,w*.58,.02,material('#c9a578',{roughness:.9}),0,S.top+.005,0,14);}
+    return g;
+  }
   // Imported characters load asynchronously: a translucent stand-in holds their place until the model arrives.
   importedPlaceholder(member,pending,key){
     const root=new THREE.Group(),ghost=new THREE.Mesh(new THREE.CapsuleGeometry(.55,2.2,6,16),new THREE.MeshStandardMaterial({color:'#9aa4ad',transparent:true,opacity:.25,depthWrite:false}));ghost.position.y=1.7*member.look.height;root.add(ghost);
@@ -170,7 +208,7 @@ export class FilmScene{
   setProject(p){
     this.project=p;this.lastScreenKey=null;this.buildWorld(p);this.buildCast(p);
     for(const r of this.rigs)if(r.face)r.face.last='';
-    if(p.set==='desk')this.key.intensity=3.7+p.warmth*.8;this.renderer.warmth=p.warmth;if(this.grade)this.grade.uniforms.warmth.value=p.warmth;
+    if(p.set==='desk')this.key.intensity=this.key.userData.base*(3.7+p.warmth*.8)/4.5;this.renderer.warmth=p.warmth;if(this.grade)this.grade.uniforms.warmth.value=p.warmth;
   }
   castIndex(id){return Math.max(0,this.project.cast.findIndex(c=>c.id===id));}
   nameOf(id){return this.project.cast.find(c=>c.id===id)?.name||id;}
@@ -186,20 +224,22 @@ export class FilmScene{
     const m=rig.member,h=m.look.height,base=rig.root.position,head=this.heads[m.id];
     if(rig.imported){const B=rig.B,y=o=>o?o.getWorldPosition(new THREE.Vector3()).y:null,hs=rig.headSize;return {x:head.x,z:head.z,crown:head.y+hs*.6,eye:head.y+hs*.05,chin:head.y-hs*.45,shoulder:y(B.leftUpperArm)??head.y-hs*1.3,waist:y(B.hips)??base.y+1.6,feet:base.y,width:1.1,scale:1};}
     if(rig.loading)return {x:base.x,z:base.z,crown:base.y+3.4*h,eye:base.y+3*h,chin:base.y+2.5*h,shoulder:base.y+2.1*h,waist:base.y+1.1*h,feet:base.y,width:1.1,scale:h};
-    const p=rig.plan,hr=(rig.kind==='bot'?.47:.55)*m.look.head*h,hair=rig.kind==='human'&&m.look.hairStyle!=='bald'?.12*h:0;
-    return {x:head.x,z:head.z,crown:head.y+hr+hair,eye:head.y+.07*m.look.head*h,chin:head.y-hr*.92,shoulder:base.y+h*(p.leg+p.chestY+p.shoulderY),waist:base.y+h*p.leg,feet:base.y,width:(rig.kind==='bot'?1.4:1.1*m.look.build)*h,scale:h};
+    const p=rig.plan,hr=(rig.kind==='bot'?.47:rig.kind==='mascot'?.66:.55)*m.look.head*h,hair=rig.kind==='human'&&m.look.hairStyle!=='bald'?.12*h:0;
+    // A mascot is all head: its "shoulders" are the bottom of the body and its "waist" is down on the legs.
+    const chin=head.y-hr*.92,mascot=rig.kind==='mascot';
+    return {x:head.x,z:head.z,crown:head.y+hr+hair,eye:head.y+.07*m.look.head*h,chin,shoulder:mascot?chin-.02*h:base.y+h*(p.leg+p.chestY+p.shoulderY),waist:base.y+h*p.leg*(mascot?.45:1),feet:base.y,width:(rig.kind==='bot'?1.4:rig.kind==='mascot'?1.6*m.look.build:1.1*m.look.build)*h,scale:h};
   }
   // Framing for one segment. Each size fixes where the frame top/bottom fall on the body (portrait safe zones:
   // faces stay between ~13% and 60% from the top, clear of captions and app UI), then the lens sets the distance.
   shotFrame(seg){
     const marks=this.marks,S=marks[seg.subject]||Object.values(marks)[0],O=marks[seg.other]||S,rig=this.rigOf(seg.subject),facing=rig.root.rotation.y;
     const all=Object.values(marks),minX=Math.min(...all.map(m=>m.x-m.width/2)),maxX=Math.max(...all.map(m=>m.x+m.width/2)),aspect=9/16,move=seg.cam?.move||'auto';
-    const fit=(top,bottom,ft,fb,lens,width=0)=>{const v=lensToFov(lens)*DEG;let H=(top-bottom)/(fb-ft);if(width)H=Math.max(H,width/(aspect*.84));return {H,yC:top+(ft-.5)*H,dist:(H/2)/Math.tan(v/2)};};
+    const fit=(top,bottom,ft,fb,lens,width=0)=>{const v=lensToFov(lens)*DEG,need=(top-bottom)/(fb-ft);let H=need;if(width)H=Math.max(H,width/(aspect*.84));const ft2=ft+(1-need/H)*(fb-ft)*.6;return {H,yC:top+(ft2-.5)*H,dist:(H/2)/Math.tan(v/2)};};
     const sideOf=(a,b)=>Math.sign(b.x-a.x)||1,head=(m,y)=>new THREE.Vector3(m.x,y,m.z);
     // Lead room: shift the frame so the subject sits off-centre, away from the side their partner is on.
     const lead=(center,ay,W,toward,amt)=>{const right=new THREE.Vector3(Math.cos(ay),0,-Math.sin(ay)),sgn=Math.sign(new THREE.Vector3(toward.x-S.x,0,toward.z-S.z).dot(right))||0;return center.addScaledVector(right,amt*sgn*W);};
     const single=(size)=>{
-      const hr=(S.crown-S.chin)/1.9,T={ecu:[S.eye+.55*hr,S.chin-.12*hr,.12,.58,85,8,2,.005],cu:[S.crown,S.chin-.55*hr,.13,.58,75,12,3,.0045],single:[S.crown,S.shoulder-.42*(S.shoulder-S.waist),.14,.6,60,18,4,.003],ms:[S.crown,S.waist-.15*S.scale,.15,.64,50,15,5,.0022],fs:[S.crown,S.feet,.16,.8,40,10,7,.0012]}[size];
+      const hr=(S.crown-S.chin)/1.9,T={ecu:[S.eye+.55*hr,S.chin-.12*hr,.12,.58,85,8,0,.005],cu:[S.crown,S.chin-.55*hr,.13,.58,75,12,-2,.0045],single:[S.crown,S.shoulder-.42*(S.shoulder-S.waist),.14,.6,60,18,1,.003],ms:[S.crown,S.waist-.15*S.scale,.15,.64,50,15,5,.0022],fs:[S.crown,S.feet,.16,.8,40,10,7,.0012]}[size];
       const [top,bottom,ft,fb,lens,yaw0,pitch,ap]=T,fr=fit(top,bottom,ft,fb,lens),yaw=yaw0*(seg.subject===seg.other?0:sideOf(S,O));
       const ay=facing+yaw*DEG,center=lead(head(S,fr.yC),ay,fr.H*aspect,O,seg.subject===seg.other?0:.07);
       return {center,yaw,pitch,dist:fr.dist,lens,ap,facing,move};
@@ -230,7 +270,7 @@ export class FilmScene{
   describeShot(seg){const f=this.shotFrame(seg);return {yaw:Math.round(f.yaw),pitch:Math.round(f.pitch),dist:Math.round(f.dist*10)/10,lens:Math.round(f.lens),move:'auto'};}
   // Pose of one shot segment at time t (centre, angles, lens, move, emotion punch-in and handheld drift).
   shotPose(seg,t,start,end,cue){
-    if(seg.shot==='screen'){const sp=this.world.screenPose;return {pos:sp.pos.clone(),at:sp.at.clone(),fov:sp.fov,ap:sp.ap};}
+    if(seg.shot==='screen'){const sp=this.world.screenPose;if(!sp)return this.shotPose({...seg,shot:'two'},t,start,end,cue);return {pos:sp.pos.clone(),at:sp.at.clone(),fov:sp.fov,ap:sp.ap};}
     const f=this.shotFrame(seg),u=smooth((t-start)/Math.max(1,end-start)),move=f.move==='auto'?(seg.shot==='wide'?'orbit':'push'):f.move;
     let yaw=f.yaw,pitch=f.pitch,dist=f.dist,shakeAmp=0;
     if(move==='push')dist*=1-.08*u;else if(move==='pull')dist*=1+.1*u;else if(move==='orbit')yaw+=(seg.shot==='wide'?6:22)*(u-.5);else if(move==='rise')pitch+=14*u;else if(move==='handheld')shakeAmp=.035;
@@ -238,13 +278,14 @@ export class FilmScene{
     const pos=at.clone().add(new THREE.Vector3(Math.sin(ay)*Math.cos(ap2)*dist,Math.sin(ap2)*dist,Math.cos(ay)*Math.cos(ap2)*dist));
     let fov=lensToFov(f.lens);
     if(cue&&(cue.emotion==='angry'||cue.emotion==='surprised')&&cue.start>=start-.2&&move!=='static'){const e=t-cue.start;fov-=3.5*smooth(e/.18);shakeAmp+=.05*Math.exp(-Math.max(0,e)*5)*(e>0?1:0);}
-    if(move!=='static'){pos.x+=Math.sin(t*.23)*.06+Math.sin(t*41)*shakeAmp;pos.y+=Math.sin(t*.37+1)*.025+Math.cos(t*37)*shakeAmp;}
+    // Operator float: two slow octaves, scaled to the shot so wides drift as visibly as close-ups.
+    if(move!=='static'){const fl=.011*dist;pos.x+=(Math.sin(t*.23)+.45*Math.sin(t*.61+2))*fl+Math.sin(t*41)*shakeAmp;pos.y+=(Math.sin(t*.37+1)+.4*Math.sin(t*.83))*fl*.5+Math.cos(t*37)*shakeAmp;}
     pos.y=Math.max(pos.y,this.world.groundY+.5);return {pos,at,fov,ap:f.ap};
   }
   placeCamera(st,t){
     const p=this.project;let pose;
     // Creator turntable: the camera holds a full-body front view while the character itself spins.
-    if(this.focus){const rig=this.rigOf(this.focus),h=rig.member.look.height,base=rig.root.position,tall=rig.kind==='bot'?2.2:3.5*h,at=new THREE.Vector3(base.x,base.y+tall*.5,base.z);pose={pos:at.clone().add(new THREE.Vector3(0,.6,tall*1.75+1.2)),at,fov:38,ap:.0008};}
+    if(this.focus){const rig=this.rigOf(this.focus),h=rig.member.look.height,base=rig.root.position,tall=rig.kind==='bot'||rig.kind==='mascot'?2.2*h:3.5*h,at=new THREE.Vector3(base.x,base.y+tall*.5,base.z);pose={pos:at.clone().add(new THREE.Vector3(0,.6,tall*1.75+1.2)),at,fov:38,ap:.0008};}
     else if(this.previewCam){const seg={shot:'custom',subject:this.previewCam.subject||st.subject,other:st.other,cam:this.previewCam};pose=this.shotPose(seg,t,st.shotStart,st.shotEnd,st.cue);}
     else{
       const segs=planShots(p),seg=segs[st.shotIndex];pose=this.shotPose(seg,t,st.shotStart,st.shotEnd,st.cue);
@@ -255,13 +296,13 @@ export class FilmScene{
       }
     }
     this.camera.position.copy(pose.pos);this.target=pose.at;this.camera.lookAt(pose.at);this.camera.fov=pose.fov;this.camera.updateProjectionMatrix();
-    if(this.bokeh){const u2=this.bokeh.uniforms;u2.focus.value=pose.pos.distanceTo(pose.at);u2.aperture.value=p.dof?pose.ap:0;u2.maxblur.value=p.dof?.008:0;}
+    if(this.bokeh){const u2=this.bokeh.uniforms;u2.focus.value=pose.pos.distanceTo(pose.at);u2.aperture.value=p.dof?pose.ap:0;u2.maxblur.value=p.dof?clamp(pose.ap*3.4,.009,.015):0;}
     const look=FILM_LOOKS[p.filmLook]||FILM_LOOKS.studio;if(this.grade){const g=this.grade.uniforms;for(const k of ['contrast','sat','fade','mono','aberr','scan'])g[k].value=look[k]??FILM_LOOKS.studio[k];g.lift.value.set(...(look.lift||[0,0,0]));g.gain.value.set(...(look.gain||[1,1,1]));g.grain.value=look.grain??.032;}
     if(this.bloom)this.bloom.strength=look.bloom??.24;
   }
   seek(t,{overlay=true}={}){
     this.time=t;const p=this.project,st=poseAt(p,t),cue=st.cue;
-    this.drawScreen(screenAt(p,t),t);this.renderer.sceneRevision=this.screenRevision;this.world.animate(t);
+    this.drawScreen(screenAt(p,t),t);this.renderer.sceneRevision=this.screenRevision;this.world.animate(t);this.applySit(p,t);
     if(!this.manual)this.placeCamera(st,this.focus?performance.now()/1000:t);else if(this.bokeh)this.bokeh.uniforms.aperture.value=0;
     const cam=this.camera.position.clone();let press=0;const cueIndex=cue?p.cues.indexOf(cue):0;
     for(const rig of this.rigs){
@@ -269,7 +310,9 @@ export class FilmScene{
       if(rig.loading)continue;
       // Conversation stance: bodies turn about a quarter toward whoever they are talking with.
       if(!focused){const sa=stanceAt(p,t,id),ang=to=>{const m=this.marks[to];if(!m||to===id)return 0;return clamp(Math.atan2(m.x-rig.root.position.x,m.z-rig.root.position.z),-1.6,1.6)*.28;};rig.root.rotation.y=rig.baseYaw+lerp(ang(sa.from),ang(sa.to),sa.k);}
-      const speaking=st.speaker===id,talk=speaking?st.energy:0,beat=speaking?beatAt(cue,t):0,face=faceAt(p,t,id),act=actionAt(p,t,id);
+      const speaking=st.speaker===id,talk=speaking?st.energy:0,beat=speaking?beatAt(cue,t):0,
+        // Listeners acknowledge the speaker's stressed words with small nods; each character on some lines only, so it never looks synced.
+        nod=!speaking&&cue&&st.speaker&&(cueIndex+Math.round(rig.seed*7))%3!==0?beatAt(cue,t)*(.05+.03*Math.sin(rig.seed*5)):0,face=faceAt(p,t,id),act=actionAt(p,t,id);
       const partnerId=speaking?st.other:(st.speaker||st.other),partner=this.heads[partnerId!==id?partnerId:st.subject]||cam;
       // Eyelines: speakers address their partner, turning to the audience for the hook and the closing line.
       // Actors cheat toward the lens: the further away the partner, the more the face stays open to camera.
@@ -277,14 +320,14 @@ export class FilmScene{
       const me=this.heads[id],toward=speaking?partner:cue?this.heads[st.speaker]:partner,limit=(speaking?(cueIndex===0||cueIndex===p.cues.length-1?12:30):55)*DEG;
       const aCam=Math.atan2(cam.x-me.x,cam.z-me.z),aTo=Math.atan2(toward.x-me.x,toward.z-me.z),dA=Math.atan2(Math.sin(aTo-aCam),Math.cos(aTo-aCam)),aim=aCam+clamp(dA,-limit,limit),reach=Math.max(2,toward.distanceTo(me));
       const look=new THREE.Vector3(me.x+Math.sin(aim)*reach,lerp(toward.y,cam.y,.3),me.z+Math.cos(aim)*reach);
-      const perf={t,talk,beat,face,action:act,baseY:rig.baseY,cueIndex,look,partner,screen:this.world.screenPoint,key:this.world.keyPoint,camera:cam},res=rig.imported?animateImported(rig,perf):animateCharacter(rig,perf);press=Math.max(press,res.press);
+      const perf={t,talk,beat,nod,sit:rig.sit,face,action:act,baseY:rig.baseY,cueIndex,look,partner,screen:this.world.screenPoint,key:this.world.keyPoint,camera:cam},res=rig.imported?animateImported(rig,perf):animateCharacter(rig,perf);press=Math.max(press,res.press);if(rig.seatMesh)rig.seatMesh.position.y=-(rig.root.position.y-rig.baseY)/rig.root.scale.y;
       const u=(t*.31+rig.seed*.173)%1,blink=(u<.03?.1:1)*(Math.sin(t*1.3+rig.seed)>.997?.1:1),gaze=speaking?0:clamp((this.heads[st.speaker]?.x??cam.x)-rig.root.position.x,-1,1)*.8;
       const mouth=mouthAt(p,t,id)||{open:talk*(.45+.4*Math.abs(Math.sin(t*11+rig.seed))),wide:1,round:0,teeth:talk>.3?1:0,tongue:0};
       if(rig.imported)drawImportedFace(rig,mouth,face,blink);else drawFace(rig,mouth,face,blink,gaze,t);
     }
     const [ky,kl]=this.world.keyRest;this.renderKey.position.y=ky-.08*press;if(this.world.screen.style==='monitor')this.renderKeyLabel.position.y=kl-.08*press;
     if(this.grade)this.grade.uniforms.time.value=t;
-    this.renderer.focusDistance=this.camera.position.distanceTo(this.manual?this.controls.target:this.target);this.composer.render();const x=this.out,w=this.w,h=this.h;x.drawImage(this.renderer.domElement,0,0,w,h);
+    this.renderer.focusDistance=this.camera.position.distanceTo(this.manual?this.controls.target:this.target);this.composer.render();if(this.trash.length)for(const f of this.trash.splice(0))f();const x=this.out,w=this.w,h=this.h;x.drawImage(this.renderer.domElement,0,0,w,h);
     if(overlay&&!this.focus)this.overlay(st);return st;
   }
   // Forest: screen events are painted on a wooden sign (same text, progress and tone as the monitor).
@@ -336,5 +379,5 @@ export class FilmScene{
     x.restore();
   }
   boxCaption(st){const x=this.out,w=this.w,h=this.h,s=w/540,c=st.cue,max=w*.79;x.font=`600 ${20*s}px Arial`;const lines=this.wrap(c.text.split(' '),max).map(r=>r.map(q=>q.word).join(' '));const bh=(43+lines.length*27)*s,y=h*.83-bh*.5;x.fillStyle='rgba(10,18,23,.87)';x.beginPath();x.roundRect(w*.075,y,w*.85,bh,9*s);x.fill();x.textAlign='center';x.font=`bold ${10*s}px Arial`;x.fillStyle=NAME_COLORS[this.castIndex(c.speaker)%4];x.fillText(this.nameOf(c.speaker).toUpperCase(),w/2,y+22*s);x.font=`600 ${20*s}px Arial`;x.fillStyle='#eee9dc';lines.forEach((l,i)=>x.fillText(l,w/2,y+(48+i*27)*s));}
-  dispose(){this.controls.dispose();this.world?.dispose?.();for(const r of this.rigs){if(r.imported)disposeImported(r);else if(!r.loading)disposeCharacter(r);}this.scene.traverse(o=>{o.geometry?.dispose();if(o.material){for(const m of Array.isArray(o.material)?o.material:[o.material])m.dispose();}});this.composer.dispose();this.renderer.dispose();}
+  dispose(){this.controls.dispose();for(const f of this.trash.splice(0))f();this.world?.dispose?.();for(const r of this.rigs){if(r.imported)disposeImported(r);else if(!r.loading)disposeCharacter(r);}this.scene.traverse(o=>{o.geometry?.dispose();if(o.material){for(const m of Array.isArray(o.material)?o.material:[o.material])m.dispose();}});this.composer.dispose();this.renderer.dispose();}
 }

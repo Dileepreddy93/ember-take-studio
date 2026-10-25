@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import {mapHumanoid,analyzeFace} from './character-import.js';
 import {gesture,backOut} from './characters.js';
-import {clamp,lerp,smooth} from './dist/timeline.js';
+import {clamp} from './dist/timeline.js';
 
 const V=(x=0,y=0,z=0)=>new THREE.Vector3(x,y,z),PI=Math.PI;
 const TARGET_HEIGHT=3.4; // matches built-in humanoids (soles to crown) at height 1.0
@@ -109,7 +109,7 @@ export function animateImported(rig,ctx){
   // Head: look target, emotion, speech nods, gesture offsets.
   const hp=B.neck?B.neck.getWorldPosition(V()):B.head.getWorldPosition(V()),look=(g.look&&ctx[g.look])?ctx[g.look]:ctx.look;let yaw=0,pitch=0;
   if(look){const d=look.clone().sub(hp).applyQuaternion(rig.root.getWorldQuaternion(new THREE.Quaternion()).invert());yaw=clamp(Math.atan2(d.x,d.z)-cy,-.9,.9);pitch=clamp(-Math.atan2(d.y,Math.hypot(d.x,d.z)),-.4,.4);}
-  const hx=pitch*.6+face.down+(g.head?.x||0)*k+talk*(beat*.07+Math.sin(t*5.3+ph)*.015)+Math.sin(t*1.2+ph)*.02,hy=yaw*.75+(g.head?.y||0)*k+Math.sin(t*.7+ph)*.04,hz=face.tilt+(g.head?.z||0)*k+Math.sin(t*.8+ph)*.02;
+  const hx=pitch*.6+face.down+(g.head?.x||0)*k+talk*(beat*.07+Math.sin(t*5.3+ph)*.015)+(ctx.nod||0)+Math.sin(t*1.2+ph)*.02,hy=yaw*.75+(g.head?.y||0)*k+Math.sin(t*.7+ph)*.04,hz=face.tilt+(g.head?.z||0)*k+Math.sin(t*.8+ph)*.02;
   if(B.neck)rotateInRoot(rig,B.neck,_e.set(hx*.35,hy*.35,hz*.3));rotateInRoot(rig,B.head,_e.set(hx*(B.neck?.65:1),hy*(B.neck?.65:1),hz*.7));
   // Arms: relaxed hang (T-pose rigs come down to the sides), speech beats, then IK toward the gesture target.
   const domI=(rig.seed+Math.floor(ctx.cueIndex||0))%2;rig.root.updateMatrixWorld(true);

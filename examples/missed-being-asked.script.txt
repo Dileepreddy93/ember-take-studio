@@ -1,0 +1,16 @@
+# title: Missed Being Asked
+# handle: @embertake
+# theme: night-city
+# style: lowpoly
+# camera: calm
+# cast: KAI = creator sit prop=phone hairStyle=shaggy top=#2b3a8c bottom=#1d2550 voice=am_puck
+# cast: CLAUDE = mascot shape=block top=#e8743c accent=#c9572e voice=af_sky
+KAI [neutral, pause=0.6]: Claude. I tried Codex.
+CLAUDE [curious, pause=0.8]: Was it good?
+KAI [worried]: It didn't ask me one question.
+CLAUDE [happy, nod]: I ask because I care.
+KAI [sad, shrug]: Then it renamed my database.
+CLAUDE [surprised]: Oh no.
+KAI [neutral, stand, pause=0.9]: And just said, "Done."
+CLAUDE [idea, raise]: Would you like a loading spinner?
+KAI [happy, sit]: Yeah. I missed being asked.

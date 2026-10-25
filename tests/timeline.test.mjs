@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {DEFAULT_PROJECT,clone,validateProject,poseAt,mouthAt,faceAt,actionAt,screenAt,planShots,parseScript,toScript,newCastMember,beatAt,stanceAt,VISEMES,FACES,MAX_CAST} from '../dist/timeline.js';
+import {DEFAULT_PROJECT,clone,validateProject,poseAt,mouthAt,faceAt,actionAt,screenAt,planShots,parseScript,toScript,newCastMember,beatAt,stanceAt,VISEMES,FACES,MAX_CAST,applyScript,sitAt,sitsInFilm,THEMES,applyTheme,castLine,LOOK_DEFAULTS} from '../dist/timeline.js';
 import {makeSound,RATE} from '../audio.js';
 
 test('character looks survive validation and reject unsupported styles',()=>{
@@ -82,7 +82,9 @@ test('soundtrack is finite, stereo, bounded and matches frame duration',async()=
  assert.ok(peak<=.851&&peak>.1);assert.ok(energy>100);assert.equal(a[0][0],0);
 });
 test('sound disabled produces silence without imported voice',async()=>{
- const a=await makeSound({...DEFAULT_PROJECT,duration:5,music:false,sfx:false});assert.ok(a[0].every(x=>x===0));
+ const a=await makeSound({...DEFAULT_PROJECT,duration:5,music:false,sfx:false,ambience:false});assert.ok(a[0].every(x=>x===0));
+ // The world's ambient bed is its own switch.
+ const amb=await makeSound({...DEFAULT_PROJECT,duration:5,music:false,sfx:false});assert.ok(amb[0].some(x=>x!==0));
 });
 test('voice ducks the music bus',async()=>{
  const n=5*RATE,data=new Float32Array(n).map((_,i)=>i>RATE&&i<3*RATE?.5*Math.sin(i/9):0),voice={sampleRate:RATE,length:n,numberOfChannels:1,getChannelData:()=>data};
@@ -120,4 +122,49 @@ test('script text round-trips and reports mistakes by line',()=>{
  assert.equal(parseScript('REN [cu:mica]: hi\nMICA [ren-ots]: yo',p).cues.map(c=>c.subject).join(),'Mica,Ren');
  validateProject({...p,cues,duration:60});
  assert.throws(()=>parseScript('REN [moonwalk]: hi',p),/Line 1/);assert.throws(()=>parseScript('BOB: hi',p),/unknown character/);
+});
+
+test('a script defines its own cast, world and theme, and round-trips through toScript',()=>{
+  const base=validateProject(clone(DEFAULT_PROJECT));
+  const text=`# title: Test
+# theme: ocean-sunset
+# style: lowpoly
+# world: view=mountains lights=off props=plant,books particles=snow sky=#112233,#334455,#556677
+# cast: KAI = creator sit prop=phone hairStyle=shaggy top=#2b3a8c voice=am_puck
+# cast: BLOCK = mascot shape=round top=#e8743c
+KAI [neutral]: Claude. I tried Codex.
+BLOCK [curious, stand]: Was it good?
+KAI [sad, stand, pause=0.9]: No.`;
+  const parsed=parseScript(text,base),p=validateProject({...applyScript(base,parsed),duration:30});
+  assert.equal(p.set,'desk');assert.equal(p.timeOfDay,'golden');assert.equal(p.filmLook,'golden');assert.equal(p.characterStyle,'lowpoly');
+  assert.equal(p.world.view,'mountains');assert.equal(p.world.lights,false);assert.deepEqual(p.world.props,['plant','books']);assert.deepEqual(p.world.particles,['snow']);assert.deepEqual(p.world.sky,['#112233','#334455','#556677']);
+  assert.deepEqual(p.cast.map(c=>[c.id,c.kind]),[['KAI','human'],['BLOCK','mascot']]);
+  assert.equal(p.cast[0].look.stance,'sit');assert.equal(p.cast[0].look.prop,'phone');assert.equal(p.cast[0].voice,'am_puck');assert.equal(p.cast[1].look.shape,'round');
+  assert.equal(p.cues[2].stance,'stand');assert.equal(p.cues[1].stance,'stand');
+  // Everything survives a write and re-read.
+  const again=validateProject({...applyScript(base,parseScript(toScript(p),base)),duration:30});
+  assert.deepEqual(again.cast,p.cast);assert.deepEqual(again.world,p.world);
+  for(const k of ['set','timeOfDay','filmLook','characterStyle'])assert.equal(again[k],p[k]);
+  assert.deepEqual(again.cues.map(c=>c.stance),p.cues.map(c=>c.stance));
+});
+test('script errors name the line and the allowed values',()=>{
+  const base=validateProject(clone(DEFAULT_PROJECT));
+  assert.throws(()=>parseScript('# cast: X = wizard\nX: hi',base),/Line 1: unknown cast setting "wizard"/);
+  assert.throws(()=>parseScript('# world: weather=sunny\nREN: hi',base),/unknown world setting "weather"/);
+  assert.throws(()=>applyScript(base,parseScript('# theme: mars\nREN: hi',base)),/Unknown theme "mars"/);
+  assert.throws(()=>parseScript('# cast: A = mascot\nREN: hi',base),/unknown character "REN"/);
+  // Ambiguous bare words must be spelled out (round is both a glasses and a body shape).
+  assert.throws(()=>parseScript('# cast: A = mascot round\nA: hi',base),/unknown cast setting "round"/);
+});
+test('sitting eases in and out at the speaker\'s own sit/stand lines',()=>{
+  const p=validateProject(clone(DEFAULT_PROJECT));p.cast[0].look.stance='sit';
+  const ren=p.cues.find(c=>c.speaker==='Ren'&&c.start>5);ren.stance='stand';
+  assert.equal(sitAt(p,0,'Ren'),1);assert.equal(sitAt(p,ren.start+1,'Ren'),0);
+  const mid=sitAt(p,ren.start+.35,'Ren');assert.ok(mid>0&&mid<1);
+  assert.equal(sitAt(p,ren.start+1,'Mica'),0);assert.ok(sitsInFilm(p,'Ren'));assert.ok(!sitsInFilm(p,'Mica'));
+});
+test('every theme produces a valid project',()=>{
+  const base=validateProject(clone(DEFAULT_PROJECT));
+  for(const id of Object.keys(THEMES)){const p=validateProject(applyTheme(base,id));assert.equal(p.set,THEMES[id].set);}
+  assert.match(castLine(base.cast[1]),/^# cast: Mica = kind=bot voice=af_heart/);
 });

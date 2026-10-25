@@ -6,15 +6,16 @@ import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import {resolve,dirname,basename} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
-import {DEFAULT_PROJECT,clone,validateProject,parseScript} from '../dist/timeline.js';
+import {DEFAULT_PROJECT,clone,validateProject,parseScript,applyScript} from '../dist/timeline.js';
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const argv=process.argv.slice(2),args=Object.fromEntries(argv.filter(a=>a.startsWith('--')).map(v=>{const [k,...r]=v.slice(2).split('=');return [k,r.join('=')||true]}));
 const scriptPath=argv.find(a=>!a.startsWith('--'));if(!scriptPath)throw Error('Usage: npm run episode -- path/to/script.txt');
 const look=args.look?validateProject(JSON.parse(await readFile(resolve(args.look),'utf8'))):validateProject(clone(DEFAULT_PROJECT));
-const {meta,cues}=parseScript(await readFile(resolve(scriptPath),'utf8'),look);
+const parsed=parseScript(await readFile(resolve(scriptPath),'utf8'),look),{meta,cues}=parsed;
 const name=basename(scriptPath).replace(/\.script\.txt$|\.txt$/,''),out=resolve(args.out||resolve(root,'renders',name));await mkdir(out,{recursive:true});
-const project=validateProject({...look,title:meta.title||look.title,handle:meta.handle??look.handle,voiceEngine:args.engine||look.voiceEngine,cues,duration:90,voiceData:null,
+// The script's theme, set, time, camera, look, world and cast lines all apply (they used to be ignored here).
+const project=validateProject({...applyScript(look,parsed),voiceEngine:args.engine||look.voiceEngine,duration:90,
   endTitle:args['end-title']??(meta.title||look.endTitle),endSub:args['end-sub']??look.endSub});
 const draft=resolve(out,'draft.ember.json'),voiced=resolve(out,'project.ember.json');await writeFile(draft,JSON.stringify(project));
 const run=(cmd,a)=>{const r=spawnSync(cmd,a,{cwd:root,stdio:'inherit'});if(r.status!==0)process.exit(r.status||1);};

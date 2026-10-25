@@ -1,6 +1,6 @@
 // Portable film document: validation, script format and absolute-time evaluation.
 // Everything here is pure, so the browser, the headless renderer and tests agree frame for frame.
-export const KINDS=['human','robot','creature','bot','imported'];
+export const KINDS=['human','robot','creature','bot','mascot','imported'];
 export const SPECIES=['fox','cat','dragon','bear','bunny'];
 export const EMOTIONS=['neutral','happy','sad','angry','surprised','worried','curious','idea'];
 export const ACTIONS=['none','explain','wave','point','point-screen','point-other','shrug','facepalm','think','cheer','clap','thumbsup','crossarms','handsup','nod','headshake','lean','jump','type','press','raise'];
@@ -9,9 +9,11 @@ export const SHOTS=['auto','wide','two','fs','ms','single','cu','ecu','ots','scr
 export const SHOT_SIZE={wide:6,two:5,fs:4,ms:3,single:2,ots:2,cu:1,ecu:0};
 export const CAMERA_STYLES=['cinematic','calm','dynamic'];
 export const SETS=['desk','forest','meadow','snow','custom'];export const TIMES_OF_DAY=['morning','golden','night'];
-export const WORLD_PARTICLES=['leaves','fireflies','dust','pollen','snow','rain'];
-// World settings: density/wind/effects for nature sets; library ids and placement for custom worlds.
-export const WORLD_DEFAULTS={foliage:1,wind:1,particles:null,sign:true,campfire:true,backdrop:null,scene:null,scale:2,turn:0,panoHeight:4,offsetX:0,offsetY:0,offsetZ:0};
+export const WORLD_PARTICLES=['motes','leaves','fireflies','dust','pollen','snow','rain'];
+// Desk room: what the window looks out on, what the cast stands on, and what decorates the set.
+export const VIEWS=['city','mountains','ocean','forest','space','none'];export const SURFACES=['keyboard','table'];export const DESK_PROPS=['lamp','mug','plant','books','clock'];
+// World settings: density/wind/effects for nature sets; the desk room's view, lights, props and sky; library ids and placement for custom worlds.
+export const WORLD_DEFAULTS={foliage:1,wind:1,particles:null,sign:true,campfire:true,view:'city',surface:'keyboard',lights:true,lightColor:'#ffc070',monitor:true,props:['lamp','mug'],sky:null,glow:null,backdrop:null,scene:null,scale:2,turn:0,panoHeight:4,offsetX:0,offsetY:0,offsetZ:0};
 const ACTION_FRAMING={jump:'fs',cheer:'ms',handsup:'ms',wave:'ms',raise:'ms',shrug:'ms',clap:'ms',crossarms:'ms','point-screen':'ms','point-other':'two',lean:'ms',type:'ms',press:'ms',explain:'single',thumbsup:'single',facepalm:'single',think:'single'};
 export const MOVES=['auto','static','push','pull','orbit','rise','handheld'];
 export const TONES=['alert','calm','success','info'];
@@ -20,18 +22,34 @@ export const CHARACTER_STYLES=['smooth','lowpoly'];
 export const FILM_LOOK_IDS=['studio','cinematic','golden','pastel','neon','vintage','noir','documentary','dream','vhs'];
 export const MAX_CAST=4;
 // Character look: enumerated styles, numeric proportions and colours. Every kind reads the fields it uses.
-export const LOOK_OPTIONS={species:SPECIES,hairStyle:['shaggy','chunky','short','curly','long','bun','mohawk','bald'],facialHair:['none','stubble','beard','mustache'],eyeStyle:['glossy','classic'],topStyle:['hoodie','tshirt','jacket','suit'],glasses:['none','round','square'],hat:['none','cap','beanie','headphones']};
+export const LOOK_OPTIONS={species:SPECIES,hairStyle:['shaggy','chunky','short','curly','long','bun','mohawk','bald'],facialHair:['none','stubble','beard','mustache'],eyeStyle:['glossy','classic'],topStyle:['hoodie','tshirt','jacket','suit'],glasses:['none','round','square'],hat:['none','cap','beanie','headphones'],shape:['block','round','bean'],prop:['none','phone','mug','book','tablet','coffee'],stance:['stand','sit']};
 export const LOOK_RANGES={height:[.8,1.2],build:[.75,1.35],head:[.85,1.3]};
 export const LOOK_COLORS=['skin','hair','eyes','top','accent','bottom','shoes','screen'];
-export const LOOK_DEFAULTS={height:1,build:1,head:1,species:'fox',hairStyle:'shaggy',facialHair:'none',eyeStyle:'glossy',topStyle:'hoodie',glasses:'none',hat:'none',skin:'#c78a65',hair:'#2a211e',eyes:'#1b1514',top:'#2e3a55',accent:'#c9b8a4',bottom:'#1b222c',shoes:'#d6cbb5',screen:'#94f3d4'};
+export const LOOK_DEFAULTS={height:1,build:1,head:1,species:'fox',hairStyle:'shaggy',facialHair:'none',eyeStyle:'glossy',topStyle:'hoodie',glasses:'none',hat:'none',shape:'block',prop:'none',stance:'stand',skin:'#c78a65',hair:'#2a211e',eyes:'#1b1514',top:'#2e3a55',accent:'#c9b8a4',bottom:'#1b222c',shoes:'#d6cbb5',screen:'#94f3d4'};
 // Starting points for new characters; "creator" is the reference low-poly look (navy hoodie, shaggy hair, glossy eyes).
 export const CAST_TEMPLATES={
   creator:{kind:'human',voice:'am_puck',look:{head:1.22,build:.95,height:1}},
   human:{kind:'human',voice:'af_bella',look:{hairStyle:'long',top:'#b5543f',accent:'#f0d9b5',skin:'#e0a57f',hair:'#5a3422',eyeStyle:'glossy',topStyle:'jacket',bottom:'#2b3346'}},
   robot:{kind:'robot',voice:'am_echo',look:{top:'#8aa1ad',accent:'#3d4650',screen:'#7fd6ff',bottom:'#3d4650',shoes:'#2b3036'}},
   creature:{kind:'creature',voice:'af_sky',look:{species:'fox',skin:'#d9793d',hair:'#2a1e1a',top:'#3f6b58',accent:'#f2e2c9',bottom:'#2d3a33',eyeStyle:'glossy'}},
-  bot:{kind:'bot',voice:'af_nova',look:{top:'#4f8fd6',accent:'#2e3440',screen:'#ffd27a'}}
+  bot:{kind:'bot',voice:'af_nova',look:{top:'#4f8fd6',accent:'#2e3440',screen:'#ffd27a'}},
+  // A blocky companion like the reference's orange creature: one body, stubby limbs, a painted face.
+  mascot:{kind:'mascot',voice:'af_sky',look:{shape:'block',top:'#e8743c',accent:'#c9572e',eyes:'#1c1310'}}
 };
+// Themes: one-click starting points that set the world, time and film look together. Everything stays editable afterwards.
+export const THEMES={
+  'night-city':{label:'Night city desk',set:'desk',timeOfDay:'night',filmLook:'cinematic',world:{view:'city',lights:true,lightColor:'#ffc070',particles:['motes'],props:['lamp','mug']}},
+  'rainy-window':{label:'Rainy evening',set:'desk',timeOfDay:'night',filmLook:'documentary',world:{view:'city',lights:true,lightColor:'#ffb36b',particles:['rain','motes'],props:['lamp','mug','plant','books']}},
+  'snow-cabin':{label:'Snowy cabin',set:'desk',timeOfDay:'night',filmLook:'golden',world:{view:'forest',lights:true,lightColor:'#ffcf8a',particles:['snow'],props:['lamp','mug','books'],surface:'table'}},
+  'ocean-sunset':{label:'Ocean sunset',set:'desk',timeOfDay:'golden',filmLook:'golden',world:{view:'ocean',lights:true,lightColor:'#ffd49a',particles:['motes'],props:['plant','mug']}},
+  'mountain-morning':{label:'Mountain morning',set:'desk',timeOfDay:'morning',filmLook:'pastel',world:{view:'mountains',lights:false,particles:['dust'],props:['plant','books','clock'],surface:'table'}},
+  'space-station':{label:'Space station',set:'desk',timeOfDay:'night',filmLook:'neon',world:{view:'space',lights:true,lightColor:'#8fd8ff',particles:['motes'],props:['clock']}},
+  'campfire-forest':{label:'Forest campfire',set:'forest',timeOfDay:'night',filmLook:'cinematic',world:{}},
+  'sunny-meadow':{label:'Sunny meadow',set:'meadow',timeOfDay:'morning',filmLook:'pastel',world:{}},
+  'winter-woods':{label:'Winter woods',set:'snow',timeOfDay:'golden',filmLook:'cinematic',world:{}}
+};
+// Applies a theme on top of a project (world settings merge, so a script's own `# world:` keys still win when applied after).
+export function applyTheme(p,id){const th=THEMES[id];if(!th)throw Error(`Unknown theme "${id}". Themes: ${Object.keys(THEMES).join(', ')}.`);return {...p,set:th.set,timeOfDay:th.timeOfDay,filmLook:th.filmLook,world:normalizeWorld({...WORLD_DEFAULTS,...th.world})};}
 // Face rig targets per emotion: inner-brow lift, brow height, eye openness, mouth curve, head tilt/nod.
 export const FACES={
   neutral:{brow:0,raise:0,eye:1,smile:.05,tilt:0,down:0,open:0},
@@ -49,7 +67,7 @@ export const DEFAULT_PROJECT={
     {id:'Ren',name:'Ren',kind:'human',voice:'am_michael',look:{...LOOK_DEFAULTS,hairStyle:'chunky',eyeStyle:'classic',glasses:'round',skin:'#c78a65',hair:'#292026',eyes:'#211b23',top:'#8364c5',accent:'#b59ad8',bottom:'#19222d'}},
     {id:'Mica',name:'Mica',kind:'bot',voice:'af_heart',look:{...LOOK_DEFAULTS,top:'#ee704e',accent:'#493d39',screen:'#94f3d4'}}
   ],
-  characterStyle:'smooth',filmLook:'studio',cameraFlow:'cuts',cameraStyle:'cinematic',set:'desk',timeOfDay:'golden',world:{...WORLD_DEFAULTS},warmth:1,dof:true,music:true,sfx:true,musicVolume:.6,captions:true,captionStyle:'bold',intro:true,
+  characterStyle:'smooth',filmLook:'studio',cameraFlow:'cuts',cameraStyle:'cinematic',set:'desk',timeOfDay:'golden',world:{...WORLD_DEFAULTS},warmth:1,dof:true,music:true,sfx:true,ambience:true,musicVolume:.6,captions:true,captionStyle:'bold',intro:true,
   endTitle:'Made. Together.',endSub:'A little imagination goes a long way.',
   voiceEngine:'kokoro',voiceData:null,musicData:null,
   cues:[
@@ -116,6 +134,15 @@ export function planShots(p){
   segs[0].start=0;plans.set(p,segs);return segs;
 }
 // Who each character turns toward: speakers face their partner, listeners face the speaker; blended across lines.
+// Sitting amount (0 standing … 1 seated) for one character at t: the cast default, changed by `sit`/`stand` tags on
+// that character's own lines; each change eases in over 0.7 s from the line's start.
+export function sitAt(p,t,id){
+  const m=p.cast.find(c=>c.id===id);let from=m?.look?.stance==='sit'?1:0,to=from,at=-1;
+  for(const c of p.cues){if(c.start>t)break;if(c.speaker!==id||!c.stance)continue;const v=c.stance==='sit'?1:0;if(v!==to){from=to;to=v;at=c.start;}}
+  return at<0?to:lerp(from,to,smooth((t-at)/.7));
+}
+// True when the character sits at any point, so the set gives them a seat.
+export const sitsInFilm=(p,id)=>p.cast.find(c=>c.id===id)?.look?.stance==='sit'||p.cues.some(c=>c.speaker===id&&c.stance==='sit');
 export function stanceAt(p,t,id){
   const at=i=>{const c=p.cues[i];if(!c)return null;return c.speaker===id?partnerOf(p,i):c.speaker;};
   let i=-1;for(let j=0;j<p.cues.length;j++){if(p.cues[j].start-.3<=t)i=j;else break;}
@@ -186,12 +213,53 @@ export function wordAt(cue,t){if(!cue?.words?.length)return -1;const local=t-cue
 // A `>> SCREEN tone: KICKER | Title | Subtitle` line (add `+progress`) changes the monitor on the next line.
 const LEGACY_SHOT=/^(\w+)-(cu|ots)$/;
 function castLookup(p){const map={};for(const c of p.cast){map[c.id.toLowerCase()]=c.id;map[c.name.toLowerCase()]=c.id;}return map;}
+// Bare words in a `# cast:` line that name exactly one look option (e.g. "hoodie", "sit", "phone", "block").
+const BARE_LOOK=(()=>{const seen={};for(const [k,list] of Object.entries(LOOK_OPTIONS))for(const v of list)seen[v]=seen[v]?null:k;return seen;})();
+const onOff=v=>!/^(off|no|false|0|none)$/i.test(v);
+// `# cast: NAME = [template] [key=value …] [bare option …]`. A template word starts from that template; `kind=` starts
+// from plain defaults; otherwise a cast member with the same name keeps their current look and voice.
+export function parseCastLine(spec,p,n=0){
+  const m=spec.match(/^([^=]+?)\s*=\s*(.*)$/);if(!m)throw Error(`Line ${n}: write a cast line as  # cast: NAME = template key=value …`);
+  const name=m[1].trim().slice(0,16),old=p.cast.find(c=>c.name.toLowerCase()===name.toLowerCase());
+  let id=name.replace(/[^A-Za-z0-9_]/g,'');if(!/^[A-Za-z]/.test(id))id='c'+id;id=id.slice(0,16);
+  let out=old?clone({...old,name}):{...newCastMember({cast:[]},'creator'),name};out.id=id;
+  for(const tok of m[2].split(/[\s,]+/).filter(Boolean)){
+    const [k,v]=tok.includes('=')?[tok.slice(0,tok.indexOf('=')),tok.slice(tok.indexOf('=')+1)]:[tok,null],key=k.toLowerCase();
+    if(v===null&&CAST_TEMPLATES[key]){const t=CAST_TEMPLATES[key];out={...out,kind:t.kind,voice:t.voice,look:normalizeLook(t.look)};continue;}
+    if(v===null&&BARE_LOOK[key]){out.look={...out.look,[BARE_LOOK[key]]:key};continue;}
+    if(v===null&&key==='flip'&&out.asset){out.asset.flip=true;continue;}
+    if(key==='kind'){if(!KINDS.includes(v))throw Error(`Line ${n}: unknown character type "${v}". Types: ${KINDS.join(', ')}.`);out={...out,kind:v,look:{...LOOK_DEFAULTS}};continue;}
+    if(key==='voice'){if(!VOICE.test(v))throw Error(`Line ${n}: voices look like am_puck or af_bella.`);out.voice=v;continue;}
+    if(key==='asset'){out.asset={id:v,flip:Boolean(out.asset?.flip)};continue;}
+    const lk=Object.keys(LOOK_DEFAULTS).find(x=>x.toLowerCase()===key);
+    if(lk&&v!==null){out.look={...out.look,[lk]:LOOK_RANGES[lk]?Number(v):v};continue;}
+    throw Error(`Line ${n}: unknown cast setting "${tok}".`);
+  }
+  out.look=normalizeLook(out.look);if(out.kind!=='imported')delete out.asset;return out;
+}
+// `# world: view=ocean lights=on props=lamp,plant particles=snow sky=#112233,#334455,#556677 foliage=1.2`
+export function parseWorldLine(spec,n=0){
+  const w={};
+  for(const tok of spec.split(/\s+/).filter(Boolean)){
+    const i=tok.indexOf('=');if(i<1)throw Error(`Line ${n}: world settings look like key=value (got "${tok}").`);
+    const k=tok.slice(0,i),v=tok.slice(i+1),key=Object.keys(WORLD_DEFAULTS).find(x=>x.toLowerCase()===k.toLowerCase());
+    if(!key)throw Error(`Line ${n}: unknown world setting "${k}". Settings: ${Object.keys(WORLD_DEFAULTS).join(', ')}.`);
+    const def=WORLD_DEFAULTS[key];
+    w[key]=['particles','props','sky'].includes(key)?(/^none$/i.test(v)?[]:v.split(',').map(x=>x.trim().toLowerCase()).filter(Boolean)):typeof def==='boolean'?onOff(v):typeof def==='number'?Number(v):v.toLowerCase();
+  }
+  return w;
+}
 export function parseScript(text,p){
-  const names=castLookup(p),cues=[];let screen=null;const meta={};
-  text.split(/\r?\n/).forEach((raw,n)=>{
+  const lines=text.split(/\r?\n/),meta={},castLines=[];
+  lines.forEach((raw,n)=>{const m=raw.trim().match(/^#\s*cast\s*:\s*(.+)$/i);if(m)castLines.push(parseCastLine(m[1],p,n+1));});
+  if(castLines.length>MAX_CAST)throw Error(`A film has at most ${MAX_CAST} characters.`);
+  if(castLines.length){const ids=new Set();for(const c of castLines){if(ids.has(c.id))throw Error(`Two cast lines are both called "${c.name}".`);ids.add(c.id);}meta.cast=castLines;}
+  const names=castLookup(castLines.length?{cast:castLines}:p),cues=[];let screen=null;
+  lines.forEach((raw,n)=>{
     const line=raw.trim();if(!line)return;
     let m;
-    if((m=line.match(/^#\s*(title|handle|set|time|camera)\s*:\s*(.+)$/i))){const k=m[1].toLowerCase();meta[k]=['title','handle'].includes(k)?m[2].trim():m[2].trim().toLowerCase();return;}
+    if((m=line.match(/^#\s*(title|handle|set|time|camera|theme|look|style)\s*:\s*(.+)$/i))){const k=m[1].toLowerCase();meta[k]=['title','handle'].includes(k)?m[2].trim():m[2].trim().toLowerCase();return;}
+    if((m=line.match(/^#\s*world\s*:\s*(.+)$/i))){meta.world={...meta.world,...parseWorldLine(m[1],n+1)};return;}
     if(line.startsWith('#'))return;
     if((m=line.match(/^>>\s*screen\s*(\w+)?\s*(\+progress)?\s*:\s*(.*)$/i))){
       const [kicker='',title='',sub='']=m[3].split('|').map(s=>s.trim());
@@ -199,11 +267,11 @@ export function parseScript(text,p){
       screen={kicker:kicker.slice(0,40),title:title.slice(0,40),sub:sub.slice(0,60),tone,progress:Boolean(m[2])};return;
     }
     if(!(m=line.match(/^([^\[:]+?)\s*(?:\[([^\]]*)\])?\s*:\s*(.+)$/)))throw Error(`Line ${n+1}: use NAME [emotion, action]: text`);
-    const speaker=names[m[1].trim().toLowerCase()];if(!speaker)throw Error(`Line ${n+1}: unknown character "${m[1].trim()}". Add them in the Cast tab first.`);
+    const speaker=names[m[1].trim().toLowerCase()];if(!speaker)throw Error(`Line ${n+1}: unknown character "${m[1].trim()}". Add them in the Cast tab or with a  # cast:  line.`);
     const cue={id:cues.length+1,speaker,text:m[3].trim().slice(0,160),emotion:'neutral',action:'none',shot:'auto',pause:.45};
     for(const tag of (m[2]||'').split(',').map(s=>s.trim().toLowerCase()).filter(Boolean)){
       let t;
-      if(EMOTIONS.includes(tag))cue.emotion=tag;else if(ACTIONS.includes(tag))cue.action=tag;
+      if(EMOTIONS.includes(tag))cue.emotion=tag;else if(ACTIONS.includes(tag))cue.action=tag;else if(tag==='sit'||tag==='stand')cue.stance=tag;
       else if(tag.startsWith('pause'))cue.pause=clamp(Number(tag.split(/[=\s]/).pop())||.45,0,3);
       else if((t=tag.match(/^cam\s*=\s*(-?[\d.]+)\/(-?[\d.]+)\/([\d.]+)(?:\/([\d.]+))?$/))){cue.shot='custom';cue.cam={...(cue.cam||{}),yaw:Number(t[1]),pitch:Number(t[2]),dist:Number(t[3]),lens:Number(t[4]||50)};}
       else if((t=tag.match(/^move\s*=\s*(\w+)$/))&&MOVES.includes(t[1])){cue.cam={yaw:0,pitch:8,dist:4,lens:50,...(cue.cam||{}),move:t[1]};}
@@ -224,22 +292,89 @@ export function estimateTimes(cues,lead=.8){
   let t=lead;
   return cues.map(c=>{const words=c.text.split(/\s+/).length,len=Math.max(1.1,words*.37+.35),out={...c,start:round(t),end:round(t+len)};delete out.visemes;delete out.words;t+=len+(c.pause??.45);return out;});
 }
+// One cast member as a `# cast:` line: kind, voice, and every look value that differs from the defaults.
+export function castLine(c){
+  const look=Object.entries(c.look).filter(([k,v])=>v!==LOOK_DEFAULTS[k]).map(([k,v])=>`${k}=${v}`);
+  return `# cast: ${c.name} = kind=${c.kind} voice=${c.voice}${c.asset?` asset=${c.asset.id}${c.asset.flip?' flip':''}`:''}${look.length?' '+look.join(' '):''}`;
+}
+export function worldLine(w){
+  const v=(k,x)=>Array.isArray(x)?(x.length?x.join(','):'none'):typeof x==='boolean'?(x?'on':'off'):x;
+  const keys=['view','surface','lights','lightColor','monitor','props','particles','sky','glow','foliage','wind','campfire','sign'];
+  return '# world: '+keys.filter(k=>w[k]!=null&&JSON.stringify(w[k])!==JSON.stringify(WORLD_DEFAULTS[k])).map(k=>`${k}=${v(k,w[k])}`).join(' ');
+}
 export function toScript(p){
-  const out=[`# title: ${p.title}`,`# handle: ${p.handle}`,`# set: ${p.set}`,...(p.set==='forest'?[`# time: ${p.timeOfDay}`]:[]),`# camera: ${p.cameraStyle}`,''],name=id=>p.cast.find(c=>c.id===id)?.name||id;
+  const wl=worldLine(p.world),out=[`# title: ${p.title}`,`# handle: ${p.handle}`,`# set: ${p.set}`,...(p.set!=='custom'?[`# time: ${p.timeOfDay}`]:[]),`# camera: ${p.cameraStyle}`,`# look: ${p.filmLook}`,`# style: ${p.characterStyle}`,...(wl.length>9?[wl]:[]),...p.cast.map(castLine),''],name=id=>p.cast.find(c=>c.id===id)?.name||id;
   for(const c of p.cues){
     if(c.screen)out.push(`>> SCREEN ${c.screen.tone}${c.screen.progress?' +progress':''}: ${c.screen.kicker} | ${c.screen.title} | ${c.screen.sub}`);
     const cam=c.shot==='custom'?[`cam=${c.cam.yaw}/${c.cam.pitch}/${c.cam.dist}/${c.cam.lens}`,c.cam.move!=='auto'&&`move=${c.cam.move}`]:[c.shot!=='auto'&&(c.subject&&c.subject!==c.speaker?`${c.shot}:${name(c.subject).toLowerCase()}`:c.shot)];
-    const tags=[c.emotion,c.action!=='none'&&c.action,...cam,Math.abs((c.pause??.45)-.45)>.01&&`pause=${c.pause}`].filter(Boolean);
+    const tags=[c.emotion,c.action!=='none'&&c.action,c.stance,...cam,Math.abs((c.pause??.45)-.45)>.01&&`pause=${c.pause}`].filter(Boolean);
     out.push(`${name(c.speaker).toUpperCase()} [${tags.join(', ')}]: ${c.text}`);
   }
   return out.join('\n');
 }
 const round=n=>Math.round(n*1000)/1000;
+// Prompt for any chat AI (Claude, ChatGPT, Gemini) to turn an idea into a complete reel concept: its own characters,
+// world and story, in the script format above. The current cast is offered as cast lines to keep or replace.
+export function writerPrompt(p,topic){
+  const opts=k=>LOOK_OPTIONS[k].join(', ');
+  return `You write and design short animated reels: 3D characters in a living set, vertical 9:16 video, 30 to 55 seconds, like a polished social-media short film.
+Idea: ${topic||'something funny or touching that happens to them today'}
+
+Design the whole concept for this idea: who the characters are, where it happens and how they move. Then write the script.
+Story: a hook in the first line, escalation, one silent beat (pause=0.8 or more), and a callback or emotional punchline at the end. 8 to 14 lines, about 100 spoken words, each line under 160 characters.
+
+Reply with the script only, in exactly this format:
+# title: <short title>
+# theme: <optional starting point: ${Object.keys(THEMES).join(', ')}>
+# set: <${SETS.filter(x=>x!=='custom').join(', ')}>   (desk = a room with a desk by a big window)
+# time: <${TIMES_OF_DAY.join(', ')}>
+# look: <film grade: ${FILM_LOOK_IDS.join(', ')}>
+# style: <smooth or lowpoly>
+# world: key=value ...   (optional, see below)
+# cast: NAME = <template> key=value ... bare-option ...   (1 to ${MAX_CAST} lines, one per character)
+NAME [emotion, action]: spoken line
+NAME [emotion, action, sit, pause=0.8]: spoken line
+>> SCREEN tone: KICKER | Title | Subtitle   (optional, before a line: puts text on the monitor; tone is ${TONES.join(', ')})
+
+Characters (# cast lines). Start from a template: ${Object.keys(CAST_TEMPLATES).join(', ')} (creator = low-poly guy in a hoodie, mascot = a block/round/bean creature with a painted face, bot = small desk robot with an LED face, creature = animal person).
+Then any of: height, build, head (0.8 to 1.3); colours as #rrggbb: skin, hair, eyes, top, accent, bottom, shoes, screen; voice=<one of am_puck, am_michael, am_echo, am_fenrir, am_adam, af_heart, af_bella, af_nicole, af_sarah, af_sky, bf_emma, bf_isabella, bm_george, bm_lewis>;
+shape=${opts('shape')}; species=${opts('species')}; hairStyle=${opts('hairStyle')}; facialHair=${opts('facialHair')}; topStyle=${opts('topStyle')}; glasses=${opts('glasses')}; hat=${opts('hat')}; prop=${opts('prop')} (something held in the hand); stance=sit or stand (pose at the start).
+Example: # cast: KAI = creator sit prop=phone hairStyle=shaggy top=#2b3a8c voice=am_puck
+Example: # cast: BLIP = mascot shape=block top=#e8743c accent=#c9572e
+Current cast you may keep (copy their lines) or replace:
+${p.cast.filter(c=>c.kind!=='imported').map(castLine).join('\n')}
+
+World (# world line, for the desk room): view=${VIEWS.join('|')}; surface=${SURFACES.join('|')}; lights=on|off (string lights); lightColor=#rrggbb; monitor=on|off; props=${DESK_PROPS.join(',')} (any, comma separated, or none); particles=${WORLD_PARTICLES.join(',')} (snow, rain and leaves fall outside the window); sky=#top,#middle,#horizon; glow=#rrggbb (city window lights).
+Outdoor sets (forest, meadow, snow) use: foliage=0..1.6 wind=0..2.5 particles=... campfire=on|off.
+
+Line tags (in brackets, any order):
+Emotions: ${EMOTIONS.join(', ')}
+Actions: ${ACTIONS.join(', ')}
+Pose: sit or stand (that character sits down or stands up from this line on)
+Camera (optional, default is automatic): ${SHOTS.filter(x=>!['auto','custom'].includes(x)).join(', ')}; add :name to frame someone else; or cam=<degrees around>/<height degrees>/<distance>/<lens mm> with move=${MOVES.filter(x=>x!=='auto').join('|')}
+Pause: pause=<seconds of silence after the line, 0 to 3>`;
+}
+// A parsed script applied to a project: theme first, then the script's own set/time/camera/look/style/world and cast.
+export function applyScript(p,{meta,cues}){
+  let out={...clone(p),cues,voiceData:null,title:meta.title||p.title,handle:meta.handle??p.handle};
+  if(meta.theme)out=applyTheme(out,meta.theme);
+  if(meta.set){if(!SETS.includes(meta.set))throw Error(`Unknown set "${meta.set}". Sets: ${SETS.join(', ')}.`);out.set=meta.set;}
+  if(meta.time){if(!TIMES_OF_DAY.includes(meta.time))throw Error(`Unknown time "${meta.time}". Times: ${TIMES_OF_DAY.join(', ')}.`);out.timeOfDay=meta.time;}
+  if(meta.camera&&CAMERA_STYLES.includes(meta.camera))out.cameraStyle=meta.camera;
+  if(meta.look){if(!FILM_LOOK_IDS.includes(meta.look))throw Error(`Unknown film look "${meta.look}". Looks: ${FILM_LOOK_IDS.join(', ')}.`);out.filmLook=meta.look;}
+  if(meta.style){const st=meta.style.replace(/[^a-z]/g,'');if(!CHARACTER_STYLES.includes(st))throw Error(`Unknown character style "${meta.style}". Styles: smooth, lowpoly.`);out.characterStyle=st;}
+  if(meta.world)out.world=normalizeWorld({...out.world,...meta.world});
+  if(meta.cast)out.cast=meta.cast;
+  return out;
+}
 
 const COLOR=/^#[a-f\d]{6}$/i,VOICE=/^[a-z]{2}_[a-z]+$/,ID=/^[A-Za-z][A-Za-z0-9_]{0,15}$/;
 export function normalizeWorld(raw={}){
   const w={...WORLD_DEFAULTS,...(raw||{})},id=v=>typeof v==='string'&&/^[a-z0-9-]{6,40}$/.test(v)?v:null,num=(v,lo,hi,d)=>Number.isFinite(Number(v))?clamp(Number(v),lo,hi):d;
-  return {foliage:num(w.foliage,0,1.6,1),wind:num(w.wind,0,2.5,1),particles:Array.isArray(w.particles)?[...new Set(w.particles.filter(x=>WORLD_PARTICLES.includes(x)))]:null,sign:w.sign!==false,campfire:w.campfire!==false,
+  const color=v=>typeof v==='string'&&COLOR.test(v)?v.toLowerCase():null,list=(v,ok)=>Array.isArray(v)?[...new Set(v.filter(x=>ok.includes(x)))]:null;
+  const sky=Array.isArray(w.sky)&&w.sky.length===3&&w.sky.every(color)?w.sky.map(color):null;
+  return {foliage:num(w.foliage,0,1.6,1),wind:num(w.wind,0,2.5,1),particles:list(w.particles,WORLD_PARTICLES),sign:w.sign!==false,campfire:w.campfire!==false,
+    view:VIEWS.includes(w.view)?w.view:'city',surface:SURFACES.includes(w.surface)?w.surface:'keyboard',lights:w.lights!==false,lightColor:color(w.lightColor)||'#ffc070',monitor:w.monitor!==false,props:list(w.props,DESK_PROPS)??['lamp','mug'],sky,glow:color(w.glow),
     backdrop:id(w.backdrop),scene:id(w.scene),scale:num(w.scale,.05,50,2),turn:num(w.turn,-180,180,0),panoHeight:num(w.panoHeight,.5,40,4),offsetX:num(w.offsetX,-100,100,0),offsetY:num(w.offsetY,-50,50,0),offsetZ:num(w.offsetZ,-100,100,0)};
 }
 export function normalizeLook(raw={}){
@@ -252,7 +387,7 @@ export function normalizeLook(raw={}){
 export function newCastMember(p,template='creator'){
   const t=CAST_TEMPLATES[template]||CAST_TEMPLATES.creator,taken=new Set(p.cast.map(c=>c.id));
   let n=p.cast.length+1;while(taken.has('char'+n))n++;
-  const names={creator:'Kai',human:'Maya',robot:'Bolt',creature:'Pip',bot:'Dot'};let name=names[template]||'New';if(p.cast.some(c=>c.name===name))name+=' '+n;
+  const names={creator:'Kai',human:'Maya',robot:'Bolt',creature:'Pip',bot:'Dot',mascot:'Blip'};let name=names[template]||'New';if(p.cast.some(c=>c.name===name))name+=' '+n;
   return {id:'char'+n,name,kind:t.kind,voice:t.voice,look:normalizeLook(t.look)};
 }
 // Projects from v1/v2 had exactly Ren (human) and Mica (desk bot) with flat colour fields.
@@ -285,7 +420,7 @@ export function validateProject(raw){
     return out;
   });
   p.warmth=clamp(Number(p.warmth)||1,.5,1.5);p.musicVolume=clamp(Number(p.musicVolume??.6),0,1);
-  for(const k of ['music','sfx','captions','dof','intro'])p[k]=Boolean(p[k]);
+  for(const k of ['music','sfx','ambience','captions','dof','intro'])p[k]=Boolean(p[k]);
   if(!CAPTION_STYLES.includes(p.captionStyle))p.captionStyle='bold';
   if(!CHARACTER_STYLES.includes(p.characterStyle))p.characterStyle='smooth';
   if(!FILM_LOOK_IDS.includes(p.filmLook))p.filmLook='studio';if(!['cuts','one-take'].includes(p.cameraFlow))p.cameraFlow='cuts';if(!CAMERA_STYLES.includes(p.cameraStyle))p.cameraStyle='cinematic';if(!SETS.includes(p.set))p.set='desk';p.world=normalizeWorld(p.world);if(!TIMES_OF_DAY.includes(p.timeOfDay))p.timeOfDay='golden';
@@ -309,6 +444,7 @@ export function validateProject(raw){
     const id=Number(c.id)||i+1;if(ids.has(id))throw Error('Duplicate line identifiers.');ids.add(id);
     if(cue.visemes!==undefined&&(!Array.isArray(cue.visemes)||cue.visemes.length>2000||!cue.visemes.every(v=>Array.isArray(v)&&Number.isFinite(v[0])&&v[1] in VISEMES)))throw Error(`Line ${i+1}: invalid lip-sync data.`);
     if(cue.words!==undefined&&(!Array.isArray(cue.words)||cue.words.length>200||!cue.words.every(w=>Array.isArray(w)&&Number.isFinite(w[0])&&Number.isFinite(w[1])&&typeof w[2]==='string')))throw Error(`Line ${i+1}: invalid word timings.`);
+    if(!['sit','stand'].includes(cue.stance))delete cue.stance;
     if(cue.screen==null)delete cue.screen;
     else{const s=cue.screen;if(!TONES.includes(s.tone))throw Error(`Line ${i+1}: unknown screen tone.`);cue.screen={kicker:String(s.kicker||'').slice(0,40),title:String(s.title||'').slice(0,40),sub:String(s.sub||'').slice(0,60),tone:s.tone,progress:Boolean(s.progress)};}
     return {...cue,id,text:cue.text.trim()};

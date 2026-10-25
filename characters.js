@@ -59,12 +59,16 @@ const PLANS={
   humanoid:{leg:1.05,hipX:.2,thigh:.52,shin:.48,chestY:.1,shoulderX:.47,shoulderY:.95,neckY:1.04,headY:.06,headC:.58,upper:.54,fore:.5,hand:.16,
     anchors:{forehead:[0,.76,.5],chin:[.04,.2,.4],face:[0,.6,.62],ear:[.56,.6,0]}},
   bot:{leg:.52,hipX:.3,thigh:.27,shin:.27,chestY:.05,shoulderX:.62,shoulderY:.7,neckY:.86,headY:.04,headC:.43,upper:.38,fore:.36,hand:.1,
-    anchors:{forehead:[.12,.18,.5],chin:[.08,.02,.5],face:[0,.45,.62],ear:[.7,.43,0]}}
+    anchors:{forehead:[.12,.18,.5],chin:[.08,.02,.5],face:[0,.45,.62],ear:[.7,.43,0]}},
+  mascot:{leg:.5,hipX:.36,thigh:.25,shin:.25,chestY:.02,shoulderX:.78,shoulderY:.62,neckY:.2,headY:0,headC:.5,upper:.34,fore:.3,hand:.1,
+    anchors:{forehead:[-.4,.15,.58],chin:[.42,-.1,.58],face:[0,.1,.7],ear:[.8,.1,0]}}
 };
+// Sitting: seat top height, hip height and how far back the hips move (rig units, before the character's height scale).
+const SEATS={humanoid:{top:.56,hip:.66,back:.42},bot:{top:.3,hip:.36,back:.3},mascot:{top:.28,hip:.34,back:.32}};
 
 export function buildCharacter(member,style='smooth'){
   Q={smooth:style!=='lowpoly'};
-  const a=member.look,kind=member.kind,plan=kind==='bot'?PLANS.bot:PLANS.humanoid,b=a.build,seed=[...member.id].reduce((s,c)=>s+c.charCodeAt(0),0),robotic=kind==='robot'||kind==='bot';
+  const a=member.look,kind=member.kind,pk=kind==='bot'||kind==='mascot'?kind:'humanoid',plan=PLANS[pk],b=a.build,seed=[...member.id].reduce((s,c)=>s+c.charCodeAt(0),0),robotic=kind==='robot'||kind==='bot';
   const cloth=(c,extra={})=>mat(c,{rough:.88,sheen:.8,sheenColor:shade(c,.25),...extra});
   const M={skin:mat(a.skin,{rough:kind==='creature'?.9:.6,sheen:kind==='creature'?.9:.45,sheenColor:shade(a.skin,.22)}),hair:mat(a.hair,{rough:.5,sheen:1,sheenColor:shade(a.hair,.35)}),
     top:robotic?mat(a.top,{rough:kind==='bot'?.36:.3,metal:kind==='robot'?.45:.05,coat:.8}):cloth(a.top),
@@ -73,10 +77,15 @@ export function buildCharacter(member,style='smooth'){
     screen:mat('#0f2221',{rough:.2,metal:.2,coat:1}),sole:mat(shade(a.shoes,-.35),{rough:.8}),blush:mat('#ff8f87',{rough:1,opacity:.28,flat:false})};
   const root=new THREE.Group(),hips=grp(root,0,plan.leg,0),chest=grp(hips,0,plan.chestY,0),neck=grp(chest,0,plan.neckY,0),head=grp(neck,0,plan.headY,0);
   root.scale.setScalar(a.height);head.scale.setScalar(a.head);
-  const rig={member,kind,plan,root,hips,chest,neck,head,arms:[],legs:[],feet:[],M,seed,face:null,anchors:{},smooth:Q.smooth};
+  const rig={member,kind,plan,seat:SEATS[pk],root,hips,chest,neck,head,arms:[],legs:[],feet:[],M,seed,face:null,anchors:{},smooth:Q.smooth};
 
   // Torso and hips.
-  if(kind==='bot'){box(chest,1.12,.78,.72,M.top,0,.43,0,.14);box(chest,.8,.41,.08,M.accent,0,.44,.385,.05);cyl(chest,.11,.11,.02,M.white,-.23,.44,.45,12).rotation.x=PI/2;for(let i=0;i<3;i++)box(chest,.22,.025,.03,M.white,.17,.36+i*.08,.443,.008);box(hips,.7,.16,.5,M.accent,0,.02,0,.05);}
+  if(kind==='mascot'){const cy=plan.neckY+plan.headY+plan.headC,sh=a.shape;
+    if(sh==='block')box(chest,1.5*b,1.3,1.15,M.top,0,cy,0,Q.smooth?.12:.03);
+    else if(sh==='round'){const body=ball(chest,.74,M.top,0,cy,0,32,24);body.scale.set(b,.95,.92);}
+    else{const body=capsule(chest,.6*b,.45,M.top,0,cy,0);body.scale.z=.85;}
+    rig.bodyDepth=sh==='block'?1.15:sh==='round'?.74*.92*2:.6*.85*2;}
+  else if(kind==='bot'){box(chest,1.12,.78,.72,M.top,0,.43,0,.14);box(chest,.8,.41,.08,M.accent,0,.44,.385,.05);cyl(chest,.11,.11,.02,M.white,-.23,.44,.45,12).rotation.x=PI/2;for(let i=0;i<3;i++)box(chest,.22,.025,.03,M.white,.17,.36+i*.08,.443,.008);box(hips,.7,.16,.5,M.accent,0,.02,0,.05);}
   else if(kind==='robot'){box(chest,.98*b,1.0,.62,M.top,0,.5,0,.12);box(chest,.62*b,.42,.06,M.screen,0,.62,.32,.05);cyl(chest,.08,.08,.02,M.accent,0,.62,.36,10).rotation.x=PI/2;box(hips,.72*b,.36,.5,M.accent,0,0,0,.08);cyl(chest,.16,.18,.18,M.accent,0,1.02,0,10);}
   else{
     let torso;
@@ -101,13 +110,14 @@ export function buildCharacter(member,style='smooth'){
   for(const s of [-1,1]){
     const shoulder=grp(chest,s*(kind==='bot'?plan.shoulderX:plan.shoulderX*b),plan.shoulderY,0),upper=grp(shoulder),fore=grp(upper,0,-plan.upper,0),hand=grp(fore,0,-plan.fore,0);
     const sleeve=a.topStyle==='tshirt'&&!robotic;
-    if(kind==='bot'){ball(shoulder,.14,M.accent,0,0,0,10,8);cyl(upper,.09,.09,plan.upper-.06,M.white,0,-plan.upper/2,0,8);ball(fore,.12,M.accent,0,0,0,10,8);cyl(fore,.1,.1,plan.fore-.08,M.top,0,-plan.fore/2,0,8);}
+    if(kind==='mascot'){box(upper,.2,plan.upper+.08,.2,M.top,0,-plan.upper/2+.04,0,.05);box(fore,.18,plan.fore,.18,M.accent,0,-plan.fore/2,0,.05);}
+    else if(kind==='bot'){ball(shoulder,.14,M.accent,0,0,0,10,8);cyl(upper,.09,.09,plan.upper-.06,M.white,0,-plan.upper/2,0,8);ball(fore,.12,M.accent,0,0,0,10,8);cyl(fore,.1,.1,plan.fore-.08,M.top,0,-plan.fore/2,0,8);}
     else if(kind==='robot'){ball(shoulder,.19*b,M.accent,0,0,0,10,8);cyl(upper,.12*b,.11*b,plan.upper-.08,M.top,0,-plan.upper/2,0,8);ball(fore,.13*b,M.accent,0,0,0,10,8);cyl(fore,.11*b,.1*b,plan.fore-.06,M.top,0,-plan.fore/2,0,8);}
     else{ball(shoulder,.2*b,M.top,0,0,0,8,6);capsule(upper,.165*b,plan.upper-.2,sleeve?M.skin:M.top,0,-plan.upper/2,0);if(sleeve)cyl(upper,.19*b,.18*b,.2,M.top,0,-.08,0,8);
       if(Q.smooth)ball(fore,.152*b,sleeve?M.skin:M.top,0,0,0,10,8);
       capsule(fore,.15*b,plan.fore-.18,sleeve?M.skin:M.top,0,-plan.fore/2,0);
       if(!sleeve){if(Q.smooth){const cuff=torus(fore,.135*b,.035,mat(shade(a.top,-.15),{rough:.9,sheen:.6}),0,-plan.fore+.07,0);cuff.rotation.x=PI/2;}else cyl(fore,.155*b,.155*b,.1,mat(shade(a.top,-.15)),0,-plan.fore+.06,0,8);}}
-    const palmMat=robotic?M.accent:M.skin,size=kind==='bot'?.8:1,fingers=[];let index,thumb;
+    const palmMat=robotic?M.accent:kind==='mascot'?M.accent:M.skin,size=kind==='bot'?.8:kind==='mascot'?.55:1,fingers=[];let index,thumb;
     if(Q.smooth){
       // Palm, four fingers and a thumb; the palm faces the body at rest and fingers curl toward it.
       const palm=box(hand,.1*size,.17*size,.17*size,palmMat,0,-.085*size,0,.045*size);
@@ -124,25 +134,40 @@ export function buildCharacter(member,style='smooth'){
   // Legs end at the ankle; feet are root children so they stay planted while the hips move.
   for(const s of [-1,1]){
     const hip=grp(hips,s*plan.hipX*(kind==='bot'?1:b),kind==='bot'?0:-.08,0),upper=grp(hip),fore=grp(upper,0,-plan.thigh,0),ankleY=.07,foot=grp(root,s*plan.hipX*(kind==='bot'?1:b),ankleY,.04);
-    if(kind==='bot'){cyl(upper,.1,.1,plan.thigh,M.accent,0,-plan.thigh/2,0,8);cyl(fore,.1,.1,plan.shin,M.accent,0,-plan.shin/2,0,8);box(foot,.43,.25,.6,M.top,0,.06,.08,.07);box(foot,.45,.065,.63,M.accent,0,-.05,.08,.025);}
+    if(kind==='mascot'){box(upper,.24,plan.thigh+.06,.24,M.top,0,-plan.thigh/2,0,.04);box(fore,.22,plan.shin,.22,M.accent,0,-plan.shin/2,0,.04);box(foot,.26,.1,.3,M.accent,0,-.02,.03,.03);
+      if(a.shape==='block'){const rear=box(hips,.22,plan.leg+.05,.22,M.accent,s*plan.hipX,-plan.leg/2+.02,-.38,.04);rear.userData.rear=true;}}
+    else if(kind==='bot'){cyl(upper,.1,.1,plan.thigh,M.accent,0,-plan.thigh/2,0,8);cyl(fore,.1,.1,plan.shin,M.accent,0,-plan.shin/2,0,8);box(foot,.43,.25,.6,M.top,0,.06,.08,.07);box(foot,.45,.065,.63,M.accent,0,-.05,.08,.025);}
     else{capsule(upper,.17*b,plan.thigh-.2,robotic?M.top:M.bottom,0,-plan.thigh/2,0);if(Q.smooth)ball(fore,.155*b,robotic?M.accent:M.bottom,0,0,0,10,8);capsule(fore,.15*b,plan.shin-.16,robotic?M.top:M.bottom,0,-plan.shin/2,0);if(robotic&&!Q.smooth)ball(fore,.14*b,M.accent,0,0,0,8,6);
       if(Q.smooth&&!robotic){box(foot,.34*b,.17,.56,M.shoes,0,.035,.1,.08);box(foot,.36*b,.055,.6,M.sole,0,-.06,.1,.025);const toe=ball(foot,.16*b,M.shoes,0,0,.27,12,8);toe.scale.set(1.05,.62,.8);for(let k=0;k<3;k++)box(foot,.17*b,.015,.022,mat('#f2ede4',{rough:.5}),0,.13,.08+k*.07,.006);}
       else{box(foot,.36*b,.2,.58,M.shoes,0,.02,.1,.08);box(foot,.37*b,.06,.59,M.sole,0,-.07,.1,.02);}}
-    rig.legs.push({s,shoulder:hip,upper,fore,lenU:plan.thigh,lenF:plan.shin-(kind==='bot'?0:.05),handOff:0});
-    rig.feet.push(foot);
+    rig.legs.push({s,shoulder:hip,upper,fore,lenU:plan.thigh,lenF:plan.shin-(kind==='bot'||kind==='mascot'?0:.05),handOff:0});
+    rig.feet.push(foot);foot.userData.rest=foot.position.clone();
   }
 
   buildHead(rig,a,M,seed);
   for(const [k,v] of Object.entries(plan.anchors))rig.anchors[k]=V(...v);
   if(kind==='creature')buildTail(rig,a,M);
+  if(a.prop!=='none')rig.prop=buildProp(rig,a.prop);
   root.traverse(o=>{if(o.isMesh)o.userData.character=member.id;});
   return rig;
 }
 
+// Hand-held props, parented to the right hand. In the hold pose the forearm points forward, so hand +Z faces up.
+function buildProp(rig,kind){
+  const arm=rig.arms[0],g=grp(arm.hand,0,-arm.handOff*.75,0),k=rig.kind==='mascot'?1:1.35;g.scale.setScalar(k);g.rotation.x=-.9;
+  const dark=mat('#1d1f24',{rough:.35,coat:.8}),glass=mat('#9fd0ff',{emissive:'#7fb8ff',glow:1.6,flat:false});
+  if(kind==='phone'||kind==='tablet'){const [w,l]=kind==='phone'?[.17,.3]:[.42,.3];box(g,w,l,.03,dark,0,-l/2+.05,.03,.02);const scr=new THREE.Mesh(new THREE.PlaneGeometry(w*.86,l*.86),glass);scr.position.set(0,-l/2+.05,.047);g.add(scr);}
+  else if(kind==='mug'||kind==='coffee'){const c=kind==='mug'?'#d9cfc0':'#f3ede2',cup=cyl(g,.1,kind==='mug'?.1:.08,.22,mat(c,{rough:.4,coat:.6}),0,-.08,.13,16);cup.rotation.x=PI/2;
+    if(kind==='coffee'){const lid=cyl(g,.105,.105,.04,mat('#3a2a22'),0,-.08,.25,16);lid.rotation.x=PI/2;const band=cyl(g,.098,.09,.08,mat('#a8784c',{rough:.9}),0,-.08,.12,16);band.rotation.x=PI/2;}
+    else{const h=torus(g,.06,.018,mat(c,{rough:.4}),.1,-.08,.13);h.rotation.y=PI/2;const tea=cyl(g,.088,.088,.01,mat('#6b3f22',{rough:.2}),0,-.08,.235,16);tea.rotation.x=PI/2;}}
+  else if(kind==='book'){const cover=mat(rig.member.look.accent,{rough:.8});box(g,.36,.27,.05,cover,0,-.1,.04,.02);box(g,.34,.25,.055,mat('#f1ead9',{rough:.9}),.008,-.1,.045,.01);}
+  return g;
+}
 function shade(hex,amount){const c=new THREE.Color(hex);const hsl={};c.getHSL(hsl);c.setHSL(hsl.h,hsl.s,clamp(hsl.l+amount,0,1));return '#'+c.getHexString();}
 
 function buildHead(rig,a,M,seed){
   const {head,kind,plan}=rig,C=plan.headC;
+  if(kind==='mascot'){ledFace(rig,{screen:a.eyes},1.05,.6,V(0,C+.05,rig.bodyDepth/2+.012));rig.face.glow=false;return;}
   if(kind==='bot'){
     box(head,1.36,.94,.87,M.top,0,C,0,.14);box(head,1.15,.7,.085,M.accent,0,C+.02,.455,.1);box(head,1.04,.58,.035,M.screen,0,C+.02,.51,.08);
     for(const s of [-1,1]){cyl(head,.18,.18,.12,M.accent,s*.73,C,0,12).rotation.z=PI/2;cyl(head,.12,.12,.13,M.white,s*.79,C,0,12).rotation.z=PI/2;}
@@ -283,7 +308,7 @@ export function drawFace(rig,m,f,blink,gaze,t){
 function rr(x,cx,cy,w,h,r){x.beginPath();x.roundRect(cx-w/2,cy-h/2,w,h,Math.min(r,w/2,h/2));}
 function drawLed(face,m,f,blink,gaze,t){
   const k=[m.open,m.wide,m.round,f.eye*blink,f.smile,f.brow,f.asym,gaze].map(q2).join()+f.emotion+(f.emotion==='idea'?Math.floor(t*6):0);if(k===face.last)return;face.last=k;
-  const x=face.tex.ctx,col=face.color,W=512,H=288;x.clearRect(0,0,W,H);x.fillStyle=col;x.strokeStyle=col;x.lineCap='round';x.shadowColor=col;x.shadowBlur=14;
+  const x=face.tex.ctx,col=face.color,W=512,H=288;x.clearRect(0,0,W,H);x.fillStyle=col;x.strokeStyle=col;x.lineCap='round';x.shadowColor=col;x.shadowBlur=face.glow===false?0:14;
   const ey=118,eh=74*f.eye*blink,gx=gaze*16;
   for(const s of [-1,1]){
     const cx=256+s*104+gx,big=f.asym&&s===1?1.18:1,w=50*big,h=Math.max(6,eh*big);
@@ -347,7 +372,9 @@ export function gesture(name,l,d,g){
     case 'headshake':return {head:{y:osc(9,.3)}};
     case 'lean':return {chest:{x:.2},head:{x:.06},arms:[{c:[-m.sx*1.05,m.sy-L*.82,-.05],shape:'fist'},{c:[m.sx*1.05,m.sy-L*.82,-.05],shape:'fist'}]};
     case 'jump':{const squat=smooth(l/.22)*(1-smooth((l-.22)/.08)),air=Math.max(0,Math.sin(clamp((l-.28)/.55,0,1)*PI)),land=smooth((l-.83)/.08)*(1-smooth((l-.95)/.2));
-      return {hips:{y:-.22*(squat+land*.8)},root:{y:.75*air},arms:[{c:[-m.sx*1.2,m.sy+L*.5*air-L*.4*squat,L*.2],pole:[-m.sx*3,m.sy,-.3],shape:'open'},{c:[m.sx*1.2,m.sy+L*.5*air-L*.4*squat,L*.2],pole:[m.sx*3,m.sy,-.3],shape:'open'}],head:{x:-.12*air}};}
+      // Arms swing out for the take-off and flight, then settle back to the sides after landing (no held T-pose).
+      const out=smooth(l/.2)*(1-smooth((l-.95)/.3)),ay=lerp(m.sy-L*.85,m.sy+L*.5*air-L*.4*squat,out),ax=m.sx*lerp(1.05,1.2,out);
+      return {hips:{y:-.22*(squat+land*.8)},root:{y:.75*air},arms:[{c:[-ax,ay,L*.2*out+L*.08],pole:[-m.sx*3,m.sy,-.3],shape:'open'},{c:[ax,ay,L*.2*out+L*.08],pole:[m.sx*3,m.sy,-.3],shape:'open'}],head:{x:-.12*air}};}
     default:return {};
   }
 }
@@ -364,21 +391,28 @@ export function animateCharacter(rig,ctx){
   // Body: breathing, weight shift, emotion posture, gesture offsets.
   const sad=face.emotion==='sad'?1:0,angry=face.emotion==='angry'?1:0;
   rig.root.position.y=ctx.baseY+(g.root?.y||0)*k*rig.root.scale.y;
-  rig.hips.position.set(Math.sin(t*.55+ph)*.025,rig.plan.leg+(g.hips?.y||0)*k-sad*.03+Math.sin(t*1.7+ph)*.006,0);rig.hips.rotation.set(0,Math.sin(t*.4+ph)*.03,Math.sin(t*.55+ph)*.02);
-  rig.chest.rotation.set((g.chest?.x||0)*k+angry*.06+sad*.08+talk*beat*.04,Math.sin(t*.65+ph)*.03+(g.chest?.y||0)*k,-Math.sin(t*.55+ph)*.015);
+  const sit=ctx.sit||0,S=rig.seat;
+  rig.hips.position.set(Math.sin(t*.55+ph)*.025*(1-sit*.7),lerp(rig.plan.leg+(g.hips?.y||0)*k-sad*.03,S.hip,sit)+Math.sin(t*1.7+ph)*.006,-S.back*sit);
+  for(const f of rig.feet){const r=f.userData.rest;f.position.set(r.x*(1+.15*sit),r.y,r.z+.14*sit);}
+  rig.hips.children.forEach(o=>{if(o.userData.rear)o.visible=sit<.3;});rig.hips.rotation.set(0,Math.sin(t*.4+ph)*.03,Math.sin(t*.55+ph)*.02);
+  rig.chest.rotation.set((g.chest?.x||0)*k+angry*.06+sad*.08+talk*beat*.04+sit*.07,Math.sin(t*.65+ph)*.03+(g.chest?.y||0)*k,-Math.sin(t*.55+ph)*.015);
   rig.chest.scale.set(1,1+Math.sin(t*1.7+ph)*.012,1+Math.sin(t*1.7+ph)*.008);
   for(const arm of rig.arms)arm.shoulder.position.y=rig.plan.shoulderY+(g.shoulders||0)*k+sad*-.03;
   // Head: look target, emotion pose, speech nods, gesture offsets.
   rig.neck.updateWorldMatrix(true,false);const hp=rig.neck.getWorldPosition(_v1),look=(g.look&&ctx[g.look])?ctx[g.look]:ctx.look,lookW=look?_v2.copy(look).sub(hp):null;
   let yaw=0,pitch=0;if(lookW){const inv=_qa.copy(rig.chest.getWorldQuaternion(new THREE.Quaternion())).invert();lookW.applyQuaternion(inv);yaw=clamp(Math.atan2(lookW.x,lookW.z),-.9,.9);pitch=clamp(-Math.atan2(lookW.y,Math.hypot(lookW.x,lookW.z)),-.4,.4);}
-  const hx=pitch*.6+face.down+(g.head?.x||0)*k+talk*(beat*.07+Math.sin(t*5.3+ph)*.015)+Math.sin(t*1.2+ph)*.02,hy=yaw*.75+(g.head?.y||0)*k+Math.sin(t*.7+ph)*.04,hz=face.tilt+(g.head?.z||0)*k+Math.sin(t*.8+ph)*.02;
+  const hx=pitch*.6+face.down+(g.head?.x||0)*k+(ctx.nod||0)+talk*(beat*.07+Math.sin(t*5.3+ph)*.015)+Math.sin(t*1.2+ph)*.02,hy=yaw*.75+(g.head?.y||0)*k+Math.sin(t*.7+ph)*.04,hz=face.tilt+(g.head?.z||0)*k+Math.sin(t*.8+ph)*.02;
   rig.neck.rotation.set(hx*.35,hy*.35,hz*.3);rig.head.rotation.set(hx*.65,hy*.65,hz*.7);
+  // A mascot is all one body: looks, nods and tilts turn the whole block (and its arms) instead of a separate head.
+  if(rig.kind==='mascot'){rig.chest.rotation.x+=hx*.45;rig.chest.rotation.y+=hy*.55;rig.chest.rotation.z+=hz*.5;rig.neck.rotation.set(0,0,0);rig.head.rotation.set(0,0,0);}
   // Arms: an FK base (relaxed, plus speech beats on the dominant hand), then IK toward the gesture target.
   rig.root.updateMatrixWorld(true);
-  const domI=(rig.seed+Math.floor(ctx.cueIndex||0))%2;
+  const domI=rig.prop?1:(rig.seed+Math.floor(ctx.cueIndex||0))%2;
   rig.arms.forEach((arm,i)=>{
     const s=arm.s,dom=i===domI?1:.45,lift=talk*dom*(.25+beat*.55);
-    _eu.set(-.1-lift*.5-sad*-.04,0,s*(.12+.04*Math.sin(t*.9+ph+i)+angry*.05));arm.upper.quaternion.setFromEuler(_eu);arm.fore.rotation.set(-.28-lift*1.1-angry*.2,0,0);
+    // Hold pose for a prop (forearm forward, item in front of the chest); seated hands rest on the lap.
+    const hold=rig.prop&&i===0?1:0;
+    _eu.set(-.1-lift*.5-sad*-.04-sit*.4*(1-hold)-hold*.15,0,s*(.12+.04*Math.sin(t*.9+ph+i)+angry*.05));arm.upper.quaternion.setFromEuler(_eu);arm.fore.rotation.set(hold?-1.75+Math.sin(t*.7+ph)*.04:-.28-lift*1.1-angry*.2-sit*.5,0,0);
     const spec=g.arms?.[i];let shape=SHAPES[talk>.2&&dom===1?'open':'relaxed'],wrist=[0,0,0];
     if(spec&&k>0){
       effector(arm,_fk);
@@ -397,9 +431,9 @@ export function animateCharacter(rig,ctx){
   return {press:(g.press||0)*k};
 }
 export function metrics(rig){
-  const p=rig.plan,b=rig.kind==='bot'?1:rig.member.look.build,hs=rig.member.look.head,half=rig.kind==='bot'?.68:rig.kind==='robot'?.5:.56;
+  const p=rig.plan,b=rig.kind==='bot'?1:rig.member.look.build,hs=rig.member.look.head,half=rig.kind==='bot'?.68:rig.kind==='mascot'?.78:rig.kind==='robot'?.5:.56;
   // hw: head half-width and ht: head top, in chest space, so raised hands always clear the head.
-  return {sx:p.shoulderX*b,sy:p.shoulderY,reach:p.upper+p.fore+p.hand,hw:half*hs,ht:p.neckY+p.headY+(p.headC+(rig.kind==='bot'?.47:.55))*hs};
+  return {sx:p.shoulderX*b,sy:p.shoulderY,reach:p.upper+p.fore+p.hand,hw:half*hs,ht:p.neckY+p.headY+(p.headC+(rig.kind==='bot'?.47:rig.kind==='mascot'?.66:.55))*hs};
 }
 // Rest head centre in world space (for cameras and look-at), independent of animation.
 export function headWorld(rig,out=V()){rig.root.updateWorldMatrix(true,true);const p=rig.plan;return rig.root.localToWorld(out.set(0,p.leg+p.chestY+p.neckY+p.headY+p.headC*rig.member.look.head,0));}

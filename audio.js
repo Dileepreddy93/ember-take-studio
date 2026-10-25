@@ -38,6 +38,7 @@ export async function makeSound(project,voice=null,music=null){
       if(cue.action==='cheer')for(let j=0;j<3;j++)note(cue.start+j*.09,.6,1318.5*(1+j*.26),.03,(j-1)*.4,'bell','sfx');
     }
   }
+  if(project.ambience!==false)ambience(project,n,sa,sb);
   const a=new Float32Array(n),b=new Float32Array(n);
   if(voice){
     // Sidechain duck: the music bus dips under speech, effects stay on top.
@@ -47,5 +48,30 @@ export async function makeSound(project,voice=null,music=null){
   let peak=0;for(let i=0;i<n;i++)peak=Math.max(peak,Math.abs(a[i]),Math.abs(b[i]));const gain=peak>.85?.85/peak:1;
   for(let i=0;i<n;i++){const fade=Math.min(1,i/RATE/.5,(n-i)/RATE/.75);a[i]*=gain*fade;b[i]*=gain*fade;}
   return [a,b];
+}
+// Ambient bed from the world settings, synthesised from filtered noise and tones (deterministic, so renders match).
+function ambience(p,n,L,R){
+  const w=p.world||{},parts=new Set(w.particles||[]),desk=p.set==='desk',night=p.timeOfDay==='night',view=desk?(w.view||'city'):null;
+  let seed=1234567;const rnd=()=>{seed=(seed*1103515245+12345)&0x7fffffff;return seed/0x7fffffff;};
+  const lp=k=>{let y=0;return x=>y+=k*(x-y);},add=(i,v,pan=0)=>{L[i]+=v*(1-pan)*.7;R[i]+=v*(1+pan)*.7;};
+  // Room tone: a very quiet low rumble so silence never sounds digital.
+  {const f=lp(.004);for(let i=0;i<n;i++)add(i,f(rnd()*2-1)*.05);}
+  // Distant traffic (city view): low noise that swells as cars pass.
+  if(view==='city'){const f=lp(.01);let car=0,next=RATE*2;for(let i=0;i<n;i++){if(i>next){car=1;next=i+RATE*(3+rnd()*6);}car*=.99997;add(i,f(rnd()*2-1)*(.18+.5*car*Math.sin(Math.PI*Math.min(1,(1-car)*1.2)))*(night?.8:1),Math.sin(i/RATE*.2)*.4);}}
+  // Waves (ocean view): noise with slow swells.
+  if(view==='ocean'){const f=lp(.03),f2=lp(.002);for(let i=0;i<n;i++){const t=i/RATE,sw=Math.pow(.5+.5*Math.sin(t*.78+Math.sin(t*.13)*2),2.2);add(i,(f(rnd()*2-1)*.5+f2(rnd()*2-1)*2)*sw*.36,Math.sin(t*.1)*.3);}}
+  // Space: a low, slowly beating hum.
+  if(view==='space')for(let i=0;i<n;i++){const t=i/RATE;add(i,(Math.sin(2*Math.PI*55*t)+.6*Math.sin(2*Math.PI*55.4*t)+.3*Math.sin(2*Math.PI*110.2*t))*.009);}
+  // Rain: bright hiss plus random drops on the glass.
+  if(parts.has('rain')){const f=lp(.35),hp=lp(.02);for(let i=0;i<n;i++){const x=f(rnd()*2-1),h=x-hp(x);add(i,h*.04,(rnd()-.5)*.6);if(rnd()<.00025){const len=RATE*.012,pan=rnd()*1.6-.8;for(let j=0;j<len&&i+j<n;j++)add(i+j,Math.sin(j*.9)*Math.exp(-j/(len*.25))*.05,pan);}}}
+  // Wind: with snow, or outdoors.
+  if(parts.has('snow')||(!desk&&p.set!=='custom')){const f=lp(.006);for(let i=0;i<n;i++){const t=i/RATE,gust=.5+.5*Math.sin(t*.31+Math.sin(t*.07)*3);add(i,f(rnd()*2-1)*.2*gust*(w.wind??1)*(desk?2.1:1),Math.sin(t*.05)*.5);}}
+  if(!desk&&p.set!=='custom'){
+    // Night: crickets and (with a campfire) crackle. Day: short bird chirps.
+    if(night){for(let i=0;i<n;i++){const t=i/RATE,on=Math.sin(2*Math.PI*1.9*t)>.6&&Math.sin(2*Math.PI*.23*t)>-.3?1:0;add(i,Math.sin(2*Math.PI*4400*t)*.008*on,.5);}
+      if(w.campfire!==false&&p.set!=='meadow')for(let i=0;i<n;i++)if(rnd()<.0006){const len=RATE*.006,pan=rnd()*.6-.5;for(let j=0;j<len&&i+j<n;j++)add(i+j,(rnd()*2-1)*Math.exp(-j/(len*.3))*.12,pan);}}
+    else for(let k=0;k<p.duration/2.2;k++){const at=Math.floor((k*2.2+rnd()*1.8)*RATE),notes=2+Math.floor(rnd()*3),f0=2400+rnd()*1600,pan=rnd()*1.6-.8;
+      for(let q=0;q<notes;q++){const s0=at+Math.floor(q*.11*RATE),len=Math.floor(.07*RATE);for(let j=0;j<len&&s0+j<n;j++){const t=j/RATE,f=f0*(1+.35*Math.sin(Math.PI*j/len));add(s0+j,Math.sin(2*Math.PI*f*t)*Math.sin(Math.PI*j/len)*.025,pan);}}}
+  }
 }
 export function wav(channels){const n=channels[0].length,buf=new ArrayBuffer(44+n*4),v=new DataView(buf);function str(p,s){[...s].forEach((c,i)=>v.setUint8(p+i,c.charCodeAt(0)))}str(0,'RIFF');v.setUint32(4,36+n*4,true);str(8,'WAVEfmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,2,true);v.setUint32(24,RATE,true);v.setUint32(28,RATE*4,true);v.setUint16(32,4,true);v.setUint16(34,16,true);str(36,'data');v.setUint32(40,n*4,true);for(let i=0;i<n;i++)for(let c=0;c<2;c++)v.setInt16(44+(i*2+c)*2,Math.max(-32768,Math.min(32767,channels[c][i]*32767)),true);return new Blob([buf],{type:'audio/wav'});}

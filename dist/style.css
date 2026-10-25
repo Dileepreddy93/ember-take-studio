@@ -52,3 +52,7 @@ button.small{font-size:11px;padding:7px}
 .world-cards{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:4px 0 6px}.world-card{text-align:left;background:#1e2023;border:1px solid #323437;border-radius:8px;padding:9px 10px}.world-card b{display:block;font-size:12px;color:#e8e2d6}.world-card small{font-size:9.5px;color:#8d9194}.world-card.selected{border-color:#d2996f;background:#2b2622}
 .particle-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:2px 8px}.particle-grid label{flex-direction:row!important;align-items:center;margin:6px 0!important;font-size:11px!important}.particle-grid input{width:auto!important;accent-color:var(--accent)}
 #custom-fields .two-fields{margin:10px 0}#custom-fields button{margin-top:8px}#world-items{margin-top:10px}
+/* Phones: one column (preview, then the director's desk, then the story), nothing wider than the screen. */
+@media(max-width:560px){.brand{min-width:0;flex:1 1 100%}header{gap:10px;padding:12px}.top-actions{order:2;width:100%;flex-wrap:wrap;gap:6px;justify-content:space-between}main{grid-template-columns:minmax(0,1fr)}.workspace{padding:12px 12px 16px}.inspector{grid-row:2}.story-panel{grid-row:3}
+  .viewer-toolbar{flex-wrap:wrap;gap:8px}.stage-wrap{min-height:0}.stage-wrap canvas{height:auto;width:min(100%,calc(62vh*9/16));max-height:none}.transport{gap:8px;margin:14px 0 10px;flex-wrap:wrap}#sound{font-size:10px}.resolution-badge{display:none}
+  .world-cards,.two-fields.three{grid-template-columns:1fr 1fr}dialog{max-width:calc(100vw - 16px)}.panel{padding:18px 14px}}

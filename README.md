@@ -12,8 +12,16 @@ npm run studio            # then open http://localhost:8765
 ```
 
 Keep the terminal open while you work. The header shows **Studio engine ready** when voices and
-rendering are available. Without the engine (opening `dist/index.html` directly), editing, preview
-and browser export still work, but voices and studio renders do not.
+rendering are available.
+
+## Online version
+
+Every push to `main` publishes the studio to GitHub Pages (`.github/workflows/pages.yml`), so anyone
+can try it from a link, on a computer or a phone. Online, everything runs in the browser: scripts and
+the AI writer prompt, characters, worlds and themes, the live preview, and **Export film** (an MP4 made
+in the browser). Generated voices and studio-quality renders need the engine on your own computer
+(`npm run studio`); online, you can upload a voice recording instead. Build the same static site
+locally with `npm run build:pages` (output in `site/`).
 
 ## Make a reel
 
@@ -27,9 +35,10 @@ and browser export still work, but voices and studio renders do not.
 5. **Export film → Render with the studio engine.** 1080 × 1920, 30 fps, about 14 Mbps, −14 LUFS.
    Renders are kept in `renders/` and listed in the export dialog.
 
-**Cast tab:** create up to 4 characters from 5 templates (the reference "creator" look, human, robot,
-creature, desk bot) and shape each one: body proportions, hair, eyes, outfit, glasses, headwear, colours and
-voice. The stage shows a turntable of the character you are editing. **Scene tab → Camera → Custom 360°**
+**Cast tab:** create up to 4 characters from 6 templates (the reference "creator" look, human, robot,
+creature, desk bot, and a *mascot*: a block, round or bean creature with a painted face) and shape each one: body
+proportions, hair, eyes, outfit, glasses, headwear, colours, voice, whether they start the film sitting, and
+something to hold (phone, mug, book, tablet, coffee). The stage shows a turntable of the character you are editing. **Scene tab → Camera → Custom 360°**
 gives each line a free angle: drag the dial around the character, then set height, distance, lens and move.
 
 **Character library (Cast tab):** *Save to library* keeps any built-in character for future episodes.
@@ -48,9 +57,14 @@ missing. Imported characters use the same gestures, look-at, emotions and camera
 Free sources: VRoid Studio (export `.vrm`), Mixamo (rig and download, convert FBX → GLB in Blender), Blender's
 glTF exporter. Only import characters you have the rights to use commercially.
 
-**World tab:** where the story happens. *Desk studio*, *Forest*, *Meadow* and *Snowy woods* are built from
-settings, not fixed scenery: time of day, trees & plants, wind, and animated effects (falling leaves,
-fireflies, sunbeam dust, pollen, snowfall, rain, a night campfire). *My world* uses your own files:
+**World tab:** where the story happens. *Themes* set the world, time and film look in one click (night city
+desk, rainy evening, snowy cabin, ocean sunset, mountain morning, space station, forest campfire, sunny meadow,
+winter woods); everything stays editable after. *Room & desk* is a desk by a tall window: choose the view (city,
+mountains, ocean, forest, space or a plain wall), a keyboard or the table top to stand on, string lights and their
+colour, the monitor, desk props and sky colours; time of day relights the room. *Forest*, *Meadow* and *Snowy woods*
+are built from trees & plants and wind. Every set has animated effects (motes, dust, fireflies, pollen, snow, rain,
+leaves) and an ambient sound bed to match (traffic, rain, waves, wind, birds, crickets, campfire). *My world* uses
+your own files:
 
 | Import | Rules |
 |---|---|
@@ -79,21 +93,42 @@ npm run episode -- ../episodes/reply_all.script.txt            # add --engine=ch
 
 ## Script format
 
+A script is the whole concept: characters, world, look and story. Paste one into **Script**, or run it with
+`npm run episode`. Every header is optional; leave one out to keep the project's current setting.
+
 ```
-# title: Reply All
+# title: Missed Being Asked
 # handle: @yourname
->> SCREEN alert: INBOX | 1 NEW MESSAGE | TO: THE ENTIRE COMPANY
-REN [surprised, point]: Wait. Who sent an email to the entire company?
-MICA [neutral, think, pause=0.6]: You did. Four minutes ago.
+# theme: night-city          (a starting point; the lines below override it)
+# style: lowpoly             (smooth or lowpoly)
+# look: cinematic            (film grade)
+# world: view=city lights=on props=lamp,mug particles=motes,rain
+# cast: KAI = creator sit prop=phone hairStyle=shaggy top=#2b3a8c voice=am_puck
+# cast: CLAUDE = mascot shape=block top=#e8743c accent=#c9572e
+KAI [neutral, pause=0.6]: Claude. I tried Codex.
+CLAUDE [curious]: Was it good?
+KAI [sad, stand]: It didn't ask me one question.
 ```
 
-| Tag | Values |
+| Header | Values |
+|---|---|
+| `# theme:` | night-city, rainy-window, snow-cabin, ocean-sunset, mountain-morning, space-station, campfire-forest, sunny-meadow, winter-woods |
+| `# set:` / `# time:` | desk (a room by a big window), forest, meadow, snow · morning, golden, night |
+| `# world:` (room) | `view=` city, mountains, ocean, forest, space, none · `surface=` keyboard, table · `lights=on/off` · `lightColor=#hex` · `monitor=on/off` · `props=` lamp,mug,plant,books,clock · `sky=#top,#mid,#horizon` · `glow=#hex` (city window lights) |
+| `# world:` (any set) | `particles=` motes, dust, fireflies, pollen (inside) and snow, rain, leaves (outside the window); outdoors also `foliage=`, `wind=`, `campfire=` |
+| `# cast:` | `NAME = template` (creator, human, robot, creature, bot, mascot), then `key=value` look settings: height, build, head, colours (skin, hair, eyes, top, accent, bottom, shoes, screen), hairStyle, topStyle, glasses, hat, species, shape (block, round, bean), `prop=` phone, mug, book, tablet, coffee, `voice=`; plus bare words such as `sit`, `phone`, `hoodie`. With no template, an existing character of that name keeps their look |
+
+| Line tag | Values |
 |---|---|
 | Feeling | neutral, happy, sad, angry, surprised, worried, curious, idea |
 | Action | none, explain, wave, point, point-screen, point-other, shrug, facepalm, think, cheer, clap, thumbsup, crossarms, handsup, nod, headshake, lean, jump, type, press, raise |
+| Pose | `sit` or `stand`: the speaker sits down or stands up from this line on (a seat appears behind anyone who sits; built-in characters only, imported models keep standing) |
 | Camera (default auto) | wide, two, single, cu, ots, screen (`cu:mica` frames Mica); `cam=yaw/pitch/dist/lens` for a 360° angle |
 | Pause | `pause=0.8` seconds of silence after the line |
 | Monitor | `>> SCREEN alert|calm|info|success [+progress]: KICKER | Title | Subtitle` before a line |
+
+**Copy AI writer prompt** (in the Script dialog) gives Claude, ChatGPT or Gemini this whole language, so
+any idea comes back as a complete concept with its own characters and world.
 
 The automatic camera opens wide, cuts to the speaker, alternates over-the-shoulder and singles,
 punches into close-ups on angry and surprised lines, inserts the monitor when it changes, and holds a
@@ -118,6 +153,7 @@ the rights to (your own, or royalty-free libraries such as the YouTube Audio Lib
 `npm test` runs the timeline, script, camera, face and audio tests. `CLAUDE.md` explains the layout
 and how Claude Code can write and render episodes. Stills for quick framing checks:
 `node scripts/render-chrome.mjs --project=film.ember.json --out=/tmp/stills --width=540 --stills=2,5,9`.
-`--cpu` renders without the GPU.
+`--cpu` renders without the GPU. `node server.mjs` rebuilds `dist/app.bundle.js` on start
+(`npm run build` does it by hand); the bundle is not committed.
 
 Original source and scene assets: MIT, copyright 2026 Ember Take contributors.

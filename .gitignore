@@ -1,7 +1,9 @@
 node_modules/
 renders/
 .voice-cache/
+dist/app.bundle.js
 dist/render.bundle.js
 dist/render.html
 .jobs/
 library/
+site/
