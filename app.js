@@ -221,7 +221,7 @@ $('randomize').onclick=()=>{const m=member(),look={...m.look};
 // Character library: imported GLB/VRM models and saved built-in characters, reusable in any episode.
 const LIP={oculus:'visemes',arkit:'ARKit face',vroid:'VRoid mouth',vrm:'VRM expressions',generic:'mouth shape',jaw:'jaw bone',none:'none'};
 // First visit online: open a finished, voiced demo reel, so Play shows the studio at its best straight away.
-async function loadDemo(){try{const r=await fetch('demo.ember.json');if(!r.ok)return;const p=validateProject(await r.json());selected=p.cues[0]?.id||0;castSel=p.cast[0].id;time=0;restore(p);}catch(e){console.warn('Demo film unavailable:',e.message);}}
+async function loadDemo(){const requestedRevision=revision;try{const r=await fetch('demo.ember.json');if(!r.ok)return;const p=validateProject(await r.json());if(revision!==requestedRevision||restored)return;selected=p.cues[0]?.id||0;castSel=p.cast[0].id;time=0;restore(p);}catch(e){console.warn('Demo film unavailable:',e.message);}}
 // Online cloud engine (set by the Pages build). It is woken only when someone heads for voices (Voice tab, a new
 // script), so it is warm by the time they press Generate, while page views and the demo cost nothing.
 const cloud=globalThis.EMBER_API||null;let woke=0;
