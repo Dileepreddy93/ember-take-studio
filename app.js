@@ -98,7 +98,7 @@ $('generate-voices').onclick=async()=>{
     // Online: the same Kokoro voices, generated on this device.
     else{engine='kokoro';const show=(f,msg)=>{$('voice-progress').value=f;$('voice-job').textContent=msg;};
       // Online: the cloud engine (seconds, desktop-identical); if it can't be reached, the same voices on this device.
-      try{if(!cloud)throw Error('no cloud engine');show(.02,'Sending the script to the cloud voice engine…');result=await cloudVoice(cloud,project,$('voice-layout').value,show);}
+      try{if(!cloud)throw Error('no cloud engine');show(.02,'Starting cloud voices… first use can take a minute or more.');result=await cloudVoice(cloud,project,$('voice-layout').value,show);}
       catch(e){if(cloud)console.warn('Cloud voices failed, voicing on this device:',e.message);result=await voiceProject(project,$('voice-layout').value,show);}}
     if(revision!==startedRevision)throw Error('The project changed during generation. Generate voices again for the updated script.');
     const keepSelected=selected;voiceBuffer=null;commit({...result,cast:project.cast,voiceEngine:engine});selected=keepSelected;time=0;fillLine();render();$('voice-job').textContent=`Done. ${project.cues.length} lines voiced, film is ${project.duration} seconds. Press play.`;toast('Voices and lip sync are ready.');
