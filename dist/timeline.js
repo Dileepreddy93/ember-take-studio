@@ -3,7 +3,7 @@
 export const KINDS=['human','robot','creature','bot','mascot','imported'];
 export const SPECIES=['fox','cat','dragon','bear','bunny'];
 export const EMOTIONS=['neutral','happy','sad','angry','surprised','worried','curious','idea'];
-export const ACTIONS=['none','explain','wave','point','point-screen','point-other','shrug','facepalm','think','cheer','clap','thumbsup','crossarms','handsup','nod','headshake','lean','jump','type','press','raise'];
+export const ACTIONS=['none','explain','wave','point','point-screen','point-other','shrug','facepalm','think','cheer','clap','thumbsup','crossarms','handsup','nod','headshake','lean','jump','type','press','raise','hop','enter','exit'];
 export const SHOTS=['auto','wide','two','fs','ms','single','cu','ecu','ots','screen','custom'];
 // Shot sizes from widest to tightest; the director never frames a gesture tighter than it needs.
 export const SHOT_SIZE={wide:6,two:5,fs:4,ms:3,single:2,ots:2,cu:1,ecu:0};
@@ -11,12 +11,15 @@ export const CAMERA_STYLES=['cinematic','calm','dynamic'];
 export const SETS=['desk','forest','meadow','snow','custom'];export const TIMES_OF_DAY=['morning','golden','night'];
 export const WORLD_PARTICLES=['motes','leaves','fireflies','dust','pollen','snow','rain'];
 // Desk room: what the window looks out on, what the cast stands on, and what decorates the set.
-export const VIEWS=['city','mountains','ocean','forest','space','none'];export const SURFACES=['keyboard','table'];export const DESK_PROPS=['lamp','mug','plant','books','clock'];
+export const VIEWS=['city','mountains','ocean','forest','space','none'];export const SURFACES=['keyboard','laptop','table'];export const DESK_PROPS=['lamp','mug','plant','books','clock'];
 // World settings: density/wind/effects for nature sets; the desk room's view, lights, props and sky; library ids and placement for custom worlds.
 export const WORLD_DEFAULTS={foliage:1,wind:1,particles:null,sign:true,campfire:true,view:'city',surface:'keyboard',lights:true,lightColor:'#ffc070',monitor:true,props:['lamp','mug'],sky:null,glow:null,backdrop:null,scene:null,scale:2,turn:0,panoHeight:4,offsetX:0,offsetY:0,offsetZ:0};
-const ACTION_FRAMING={jump:'fs',cheer:'ms',handsup:'ms',wave:'ms',raise:'ms',shrug:'ms',clap:'ms',crossarms:'ms','point-screen':'ms','point-other':'two',lean:'ms',type:'ms',press:'ms',explain:'single',thumbsup:'single',facepalm:'single',think:'single'};
+const ACTION_FRAMING={jump:'fs',hop:'fs',enter:'two',exit:'two',cheer:'ms',handsup:'ms',wave:'ms',raise:'ms',shrug:'ms',clap:'ms',crossarms:'ms','point-screen':'ms','point-other':'two',lean:'ms',type:'ms',press:'ms',explain:'single',thumbsup:'single',facepalm:'single',think:'single'};
 export const MOVES=['auto','static','push','pull','orbit','rise','handheld'];
 export const TONES=['alert','calm','success','info'];
+// What the monitor shows: a title card, or an app whose lines type themselves out (the screen tells the joke).
+export const SCREEN_KINDS=['card','terminal','chat','code','inbox'];
+export const SCREEN_LINES=8;
 export const CAPTION_STYLES=['bold','box'];
 export const CHARACTER_STYLES=['smooth','lowpoly'];
 export const FILM_LOOK_IDS=['studio','cinematic','golden','pastel','neon','vintage','noir','documentary','dream','vhs'];
@@ -69,7 +72,7 @@ export const DEFAULT_PROJECT={
   ],
   characterStyle:'smooth',filmLook:'studio',cameraFlow:'cuts',cameraStyle:'cinematic',set:'desk',timeOfDay:'golden',world:{...WORLD_DEFAULTS},warmth:1,dof:true,music:true,sfx:true,ambience:true,musicVolume:.6,captions:true,captionStyle:'bold',intro:true,
   endTitle:'Made. Together.',endSub:'A little imagination goes a long way.',
-  voiceEngine:'kokoro',voiceData:null,musicData:null,
+  voiceEngine:'kokoro',voiceModulation:1,voiceData:null,musicData:null,
   cues:[
     {id:1,start:1.2,end:4.1,speaker:'Ren',text:'The deadline is in thirty seconds.',emotion:'worried',action:'explain',shot:'auto',pause:.3,screen:{kicker:'CONNECTION LOST',title:'OFFLINE',sub:'THE CLOUD HAS LEFT THE CHAT.',tone:'alert',progress:false}},
     {id:2,start:4.4,end:7.3,speaker:'Ren',text:'And the internet just disappeared.',emotion:'surprised',action:'point-screen',shot:'auto',pause:.3},
@@ -106,11 +109,17 @@ export function planShots(p){
   const widen=(shot,need)=>need&&SHOT_SIZE[need]>SHOT_SIZE[shot]?need:shot;
   const push=seg=>{const last=segs.at(-1);
     if(last&&last.shot===seg.shot&&last.subject===seg.subject&&seg.shot!=='custom'&&seg.shot!=='screen')return;     // hold: no jump cut
-    if(last&&seg.start-last.start<.8&&segs.length>1){segs[segs.length-1]={...seg,start:last.start};return;}           // too short: replace
+    if(last&&seg.start-last.start<(last.reaction?.45:.8)&&segs.length>1){segs[segs.length-1]={...seg,start:last.start};return;}           // too short: replace
     segs.push(seg);};
   p.cues.forEach((c,i)=>{
-    const other=partnerOf(p,i),dur=c.end-c.start;
-    if(prev&&c.start-prev.end>(style==='calm'?.8:1.2))push({start:prev.end+.2,shot:group?'wide':'two',subject:prev.speaker,other:c.speaker,cue:null});
+    const other=partnerOf(p,i),dur=c.end-c.start,gap=prev?c.start-prev.end:0;
+    // Silent beats: the listener's reaction in close-up (the laugh lands on their face), or a two-shot for calm
+    // films, groups and long silences.
+    if(prev&&gap>(style==='calm'?.8:.65)){
+      const listener=partnerOf(p,i-1);
+      if(style!=='calm'&&!group&&gap<1.8&&listener!==prev.speaker)push({start:prev.end+.15,shot:'cu',subject:listener,other:prev.speaker,cue:null,reaction:true});
+      else push({start:prev.end+.2,shot:group?'wide':'two',subject:prev.speaker,other:c.speaker,cue:null});
+    }
     let shot=c.shot,subject=c.subject||c.speaker;
     if(shot==='auto'){
       subject=c.speaker;const changed=prev&&c.speaker!==prev.speaker,last=segs.at(-1);
@@ -126,8 +135,13 @@ export function planShots(p){
     const cut=i===0?0:Math.max(prev.end,c.start-.12),seg={start:cut,shot,subject,other,cam:c.shot==='custom'?c.cam:undefined,cue:c.id};
     if(c.screen&&c.shot==='auto'&&i>0&&dur>1.5){push({start:cut,shot:'screen',subject,other,cue:c.id});push({...seg,start:c.start+Math.min(1.1,dur*.45)});}
     else push(seg);
-    // Dynamic style: a reaction shot of the listener in the middle of long lines.
-    if(style==='dynamic'&&c.shot==='auto'&&dur>4.2&&other!==c.speaker){push({start:c.start+dur*.5,shot:'cu',subject:other,other:c.speaker,cue:c.id,reaction:true});push({...seg,start:c.start+dur*.5+1.2});}
+    // A reaction shot of the listener in the middle of long lines (cinematic from 3.4 s, dynamic from 2.6 s), so a
+    // shot rarely runs past about 2.5 s, as in fast social shorts.
+    const reactAfter={cinematic:3.4,dynamic:2.6}[style];
+    if(reactAfter&&c.shot==='auto'&&dur>reactAfter&&other!==c.speaker){
+      const at=Math.max(c.start+dur*.5,segs.at(-1).start+1),back=at+Math.min(1.2,dur*.25);
+      if(back<c.end-.8){push({start:at,shot:'cu',subject:other,other:c.speaker,cue:c.id,reaction:true});push({...seg,start:back});}
+    }
     prev=c;
   });
   if(!segs.length)segs.push({start:0,shot:'two',subject:p.cast[0].id,other:p.cast[1]?.id||p.cast[0].id,cue:null});
@@ -148,6 +162,22 @@ export function stanceAt(p,t,id){
   let i=-1;for(let j=0;j<p.cues.length;j++){if(p.cues[j].start-.3<=t)i=j;else break;}
   if(i<0)return {to:at(0),from:at(0),k:1};
   return {to:at(i),from:at(i-1)??at(i),k:smooth((t-p.cues[i].start+.3)/.7)};
+}
+// Entrances and exits. `enter` on a line walks the character in from off-stage so they reach their mark as the line
+// starts (they are off-stage until then); `exit` walks them off after the line. off: 0 on the mark … 1 off-stage;
+// moving: 0 … 1 while walking (drives the step cycle); dir: +1 walking in, −1 walking out.
+export const WALK_TIME=1.6;
+export function presenceAt(p,t,id){
+  const moves=p.cues.filter(c=>c.speaker===id&&(c.action==='enter'||c.action==='exit'));
+  let off=moves[0]?.action==='enter'?1:0;
+  for(const c of moves){
+    const [a,dir]=c.action==='enter'?[c.start-WALK_TIME+.25,1]:[c.end+.2,-1],k=(t-a)/WALK_TIME;
+    if(k<0)break;
+    // Walkers ease out of their stride as they arrive and into it as they leave.
+    if(k<1)return {off:dir>0?(1-k)*(1-k):k*k,moving:Math.min(1,Math.min(k,1-k)*8),dir};
+    off=dir>0?0:1;
+  }
+  return {off,moving:0,dir:0};
 }
 export function shotAt(p,t){const segs=planShots(p);let i=0;while(i+1<segs.length&&segs[i+1].start<=t)i++;return {...segs[i],index:i,end:segs[i+1]?.start??p.duration};}
 
@@ -178,7 +208,8 @@ export function faceAt(p,t,speaker){
 }
 const DEFAULT_SCREEN={kicker:'',title:'',sub:'',tone:'calm',progress:false};
 export function screenAt(p,t){
-  const list=p.cues.filter(c=>c.screen);if(!list.length)return {screen:{...DEFAULT_SCREEN,title:p.title},since:-9,progress:null,index:0};
+  // No screen events: the monitor runs a quiet editor with the film's title in its tab (never a cropped title card).
+  const list=p.cues.filter(c=>c.screen);if(!list.length)return {screen:{...DEFAULT_SCREEN,kind:'idle',title:p.title},since:-9,progress:null,index:0};
   let i=0;while(i+1<list.length&&list[i+1].start<=t)i++;
   const c=list[i],since=i===0&&t<c.start?-9:c.start,next=list[i+1]?.start??p.duration;
   return {screen:c.screen,since,progress:c.screen.progress?smooth((t-c.start)/Math.max(.5,next-c.start-.4)):null,index:i};
@@ -258,13 +289,18 @@ export function parseScript(text,p){
   lines.forEach((raw,n)=>{
     const line=raw.trim();if(!line)return;
     let m;
-    if((m=line.match(/^#\s*(title|handle|set|time|camera|theme|look|style)\s*:\s*(.+)$/i))){const k=m[1].toLowerCase();meta[k]=['title','handle'].includes(k)?m[2].trim():m[2].trim().toLowerCase();return;}
+    if((m=line.match(/^#\s*(title|handle|set|time|camera|theme|look|style|modulation)\s*:\s*(.+)$/i))){const k=m[1].toLowerCase();meta[k]=['title','handle'].includes(k)?m[2].trim():m[2].trim().toLowerCase();return;}
     if((m=line.match(/^#\s*world\s*:\s*(.+)$/i))){meta.world={...meta.world,...parseWorldLine(m[1],n+1)};return;}
     if(line.startsWith('#'))return;
-    if((m=line.match(/^>>\s*screen\s*(\w+)?\s*(\+progress)?\s*:\s*(.*)$/i))){
-      const [kicker='',title='',sub='']=m[3].split('|').map(s=>s.trim());
-      const tone=TONES.includes((m[1]||'').toLowerCase())?m[1].toLowerCase():'calm';
-      screen={kicker:kicker.slice(0,40),title:title.slice(0,40),sub:sub.slice(0,60),tone,progress:Boolean(m[2])};return;
+    if((m=line.match(/^>>\s*beat\s*:\s*([\d.]+)$/i))){const pause=Number(m[1]);if(!cues.length||!Number.isFinite(pause)||pause<.1||pause>3)throw Error(`Line ${n+1}: put BEAT: 0.1 to 3 seconds after dialogue.`);cues.at(-1).pause=pause;return;}
+    if((m=line.match(/^>>\s*screen\b([^:]*):\s*(.*)$/i))){
+      // Words before the colon, any order: a tone, a screen type and +progress.
+      const words=m[1].toLowerCase().split(/\s+/).filter(Boolean),parts=m[2].split('|').map(s=>s.trim());
+      for(const w of words)if(!TONES.includes(w)&&!SCREEN_KINDS.includes(w)&&w!=='+progress')throw Error(`Line ${n+1}: unknown screen word "${w}". Use a tone (${TONES.join(', ')}), a type (${SCREEN_KINDS.join(', ')}) or +progress.`);
+      const tone=words.find(w=>TONES.includes(w))||'calm',kind=words.find(w=>SCREEN_KINDS.includes(w))||'card',progress=words.includes('+progress');
+      if(kind==='card'){const [kicker='',title='',sub='']=parts;screen={kicker:kicker.slice(0,40),title:title.slice(0,40),sub:sub.slice(0,60),tone,progress};}
+      else{const [title='',...rest]=parts;screen={kind,kicker:'',title:title.slice(0,40),sub:'',tone,progress,lines:rest.filter(Boolean).slice(0,SCREEN_LINES).map(l=>l.slice(0,80))};}
+      return;
     }
     if(!(m=line.match(/^([^\[:]+?)\s*(?:\[([^\]]*)\])?\s*:\s*(.+)$/)))throw Error(`Line ${n+1}: use NAME [emotion, action]: text`);
     const speaker=names[m[1].trim().toLowerCase()];if(!speaker)throw Error(`Line ${n+1}: unknown character "${m[1].trim()}". Add them in the Cast tab or with a  # cast:  line.`);
@@ -289,7 +325,7 @@ export function parseScript(text,p){
 }
 // Rough timing before voices exist: about 2.7 words a second.
 export function estimateTimes(cues,lead=.8){
-  let t=lead;
+  let t=cues[0]?.action==='enter'?Math.max(lead,WALK_TIME):lead;
   return cues.map(c=>{const words=c.text.split(/\s+/).length,len=Math.max(1.1,words*.37+.35),out={...c,start:round(t),end:round(t+len)};delete out.visemes;delete out.words;t+=len+(c.pause??.45);return out;});
 }
 // One cast member as a `# cast:` line: kind, voice, and every look value that differs from the defaults.
@@ -303,9 +339,9 @@ export function worldLine(w){
   return '# world: '+keys.filter(k=>w[k]!=null&&JSON.stringify(w[k])!==JSON.stringify(WORLD_DEFAULTS[k])).map(k=>`${k}=${v(k,w[k])}`).join(' ');
 }
 export function toScript(p){
-  const wl=worldLine(p.world),out=[`# title: ${p.title}`,`# handle: ${p.handle}`,`# set: ${p.set}`,...(p.set!=='custom'?[`# time: ${p.timeOfDay}`]:[]),`# camera: ${p.cameraStyle}`,`# look: ${p.filmLook}`,`# style: ${p.characterStyle}`,...(wl.length>9?[wl]:[]),...p.cast.map(castLine),''],name=id=>p.cast.find(c=>c.id===id)?.name||id;
+  const wl=worldLine(p.world),out=[`# title: ${p.title}`,`# handle: ${p.handle}`,`# set: ${p.set}`,...(p.set!=='custom'?[`# time: ${p.timeOfDay}`]:[]),`# camera: ${p.cameraStyle}`,`# modulation: ${p.voiceModulation??1}`,`# look: ${p.filmLook}`,`# style: ${p.characterStyle}`,...(wl.length>9?[wl]:[]),...p.cast.map(castLine),''],name=id=>p.cast.find(c=>c.id===id)?.name||id;
   for(const c of p.cues){
-    if(c.screen)out.push(`>> SCREEN ${c.screen.tone}${c.screen.progress?' +progress':''}: ${c.screen.kicker} | ${c.screen.title} | ${c.screen.sub}`);
+    if(c.screen){const s=c.screen,app=s.kind&&s.kind!=='card';out.push(`>> SCREEN ${app?s.kind+' ':''}${s.tone}${s.progress?' +progress':''}: ${app?[s.title,...s.lines].join(' | '):`${s.kicker} | ${s.title} | ${s.sub}`}`);}
     const cam=c.shot==='custom'?[`cam=${c.cam.yaw}/${c.cam.pitch}/${c.cam.dist}/${c.cam.lens}`,c.cam.move!=='auto'&&`move=${c.cam.move}`]:[c.shot!=='auto'&&(c.subject&&c.subject!==c.speaker?`${c.shot}:${name(c.subject).toLowerCase()}`:c.shot)];
     const tags=[c.emotion,c.action!=='none'&&c.action,c.stance,...cam,Math.abs((c.pause??.45)-.45)>.01&&`pause=${c.pause}`].filter(Boolean);
     out.push(`${name(c.speaker).toUpperCase()} [${tags.join(', ')}]: ${c.text}`);
@@ -317,11 +353,18 @@ const round=n=>Math.round(n*1000)/1000;
 // world and story, in the script format above. The current cast is offered as cast lines to keep or replace.
 export function writerPrompt(p,topic){
   const opts=k=>LOOK_OPTIONS[k].join(', ');
-  return `You write and design short animated reels: 3D characters in a living set, vertical 9:16 video, 30 to 55 seconds, like a polished social-media short film.
+  return `You write and design short animated reels: 3D characters in a living set, vertical 9:16 video, 40 to 60 seconds, like a polished social-media comedy short.
 Idea: ${topic||'something funny or touching that happens to them today'}
 
 Design the whole concept for this idea: who the characters are, where it happens and how they move. Then write the script.
-Story: a hook in the first line, escalation, one silent beat (pause=0.8 or more), and a callback or emotional punchline at the end. 8 to 14 lines, about 100 spoken words, each line under 160 characters.
+
+How the best reels are written:
+- Line 1 is the hook: a question or a problem the viewer instantly understands, said to the other character by name ("Claude. Who broke production?").
+- Escalate in 3 to 5 steps. Each line makes it worse, funnier or more specific. One idea per line, 4 to 12 words. Short lines are funnier.
+- One silent beat before the turn: end that line with pause=1.0 so the camera holds on the listener's reaction. Silence is where the laugh lands.
+- End on a callback: the last line twists something said earlier, or admits the truth. No moral, no explanation.
+- Use the screen to tell the joke: before a line, put the exact thing on the monitor that the line reacts to (a terminal command, a chat message, a code diff, an email). Two to four screens per reel.
+- 10 to 16 lines, about 110 spoken words. Feelings change often (that is what makes faces and voices move); give most lines an action.
 
 Reply with the script only, in exactly this format:
 # title: <short title>
@@ -334,7 +377,9 @@ Reply with the script only, in exactly this format:
 # cast: NAME = <template> key=value ... bare-option ...   (1 to ${MAX_CAST} lines, one per character)
 NAME [emotion, action]: spoken line
 NAME [emotion, action, sit, pause=0.8]: spoken line
->> SCREEN tone: KICKER | Title | Subtitle   (optional, before a line: puts text on the monitor; tone is ${TONES.join(', ')})
+>> SCREEN tone: KICKER | Title | Subtitle   (optional, before a line: a title card on the monitor; tone is ${TONES.join(', ')})
+>> SCREEN terminal alert: window title | $ git blame auth.js | 3f2a1c  Gary  2:04 AM  "fix later"   (an app that types itself out)
+   Screen types: card (title card), terminal (commands and output), chat (lines like "Kai: are you sure?"), code (a code diff: lines starting + or -), inbox (lines like "Boss — Re: the demo — now"). Up to ${SCREEN_LINES} lines, under 60 characters each; no emoji.
 
 Characters (# cast lines). Start from a template: ${Object.keys(CAST_TEMPLATES).join(', ')} (creator = low-poly guy in a hoodie, mascot = a block/round/bean creature with a painted face, bot = small desk robot with an LED face, creature = animal person).
 Then any of: height, build, head (0.8 to 1.3); colours as #rrggbb: skin, hair, eyes, top, accent, bottom, shoes, screen; voice=<one of am_puck, am_michael, am_echo, am_fenrir, am_adam, af_heart, af_bella, af_nicole, af_sarah, af_sky, bf_emma, bf_isabella, bm_george, bm_lewis>;
@@ -351,7 +396,10 @@ Line tags (in brackets, any order):
 Emotions: ${EMOTIONS.join(', ')}
 Actions: ${ACTIONS.join(', ')}
 Pose: sit or stand (that character sits down or stands up from this line on)
+Movement: enter (walks in from off-stage, arriving as the line starts; they are off-stage before it), exit (walks off after the line), hop (a happy little double hop)
 Camera (optional, default is automatic): ${SHOTS.filter(x=>!['auto','custom'].includes(x)).join(', ')}; add :name to frame someone else; or cam=<degrees around>/<height degrees>/<distance>/<lens mm> with move=${MOVES.filter(x=>x!=='auto').join('|')}
+Voice modulation: # modulation: 0 to 1.6 (1 is normal, 0 keeps the original voice).
+Silent beat: >> BEAT: 1.0 after a dialogue line holds the listener reaction without speaking.
 Pause: pause=<seconds of silence after the line, 0 to 3>`;
 }
 // A parsed script applied to a project: theme first, then the script's own set/time/camera/look/style/world and cast.
@@ -360,6 +408,7 @@ export function applyScript(p,{meta,cues}){
   if(meta.theme)out=applyTheme(out,meta.theme);
   if(meta.set){if(!SETS.includes(meta.set))throw Error(`Unknown set "${meta.set}". Sets: ${SETS.join(', ')}.`);out.set=meta.set;}
   if(meta.time){if(!TIMES_OF_DAY.includes(meta.time))throw Error(`Unknown time "${meta.time}". Times: ${TIMES_OF_DAY.join(', ')}.`);out.timeOfDay=meta.time;}
+  if(meta.modulation!==undefined){const v=Number(meta.modulation);if(!Number.isFinite(v)||v<0||v>1.6)throw Error('Voice modulation must be between 0 and 1.6.');out.voiceModulation=v;}
   if(meta.camera&&CAMERA_STYLES.includes(meta.camera))out.cameraStyle=meta.camera;
   if(meta.look){if(!FILM_LOOK_IDS.includes(meta.look))throw Error(`Unknown film look "${meta.look}". Looks: ${FILM_LOOK_IDS.join(', ')}.`);out.filmLook=meta.look;}
   if(meta.style){const st=meta.style.replace(/[^a-z]/g,'');if(!CHARACTER_STYLES.includes(st))throw Error(`Unknown character style "${meta.style}". Styles: smooth, lowpoly.`);out.characterStyle=st;}
@@ -426,6 +475,7 @@ export function validateProject(raw){
   if(!FILM_LOOK_IDS.includes(p.filmLook))p.filmLook='studio';if(!['cuts','one-take'].includes(p.cameraFlow))p.cameraFlow='cuts';if(!CAMERA_STYLES.includes(p.cameraStyle))p.cameraStyle='cinematic';if(!SETS.includes(p.set))p.set='desk';p.world=normalizeWorld(p.world);if(!TIMES_OF_DAY.includes(p.timeOfDay))p.timeOfDay='golden';
   p.endTitle=String(p.endTitle||'').slice(0,40);p.endSub=String(p.endSub||'').slice(0,80);
   if(!['kokoro','chatterbox'].includes(p.voiceEngine))p.voiceEngine='kokoro';
+  p.voiceModulation=clamp(Number(p.voiceModulation??1)||0,0,1.6);
   for(const [k,limit] of [['voiceData',16e6],['musicData',14e6]])
     if(p[k]!==null&&(typeof p[k]!=='string'||!/^data:audio\//.test(p[k])||p[k].length>limit))throw Error(`Invalid or oversized ${k==='voiceData'?'voice recording':'music track'}.`);
   const ids=new Set();
@@ -446,7 +496,9 @@ export function validateProject(raw){
     if(cue.words!==undefined&&(!Array.isArray(cue.words)||cue.words.length>200||!cue.words.every(w=>Array.isArray(w)&&Number.isFinite(w[0])&&Number.isFinite(w[1])&&typeof w[2]==='string')))throw Error(`Line ${i+1}: invalid word timings.`);
     if(!['sit','stand'].includes(cue.stance))delete cue.stance;
     if(cue.screen==null)delete cue.screen;
-    else{const s=cue.screen;if(!TONES.includes(s.tone))throw Error(`Line ${i+1}: unknown screen tone.`);cue.screen={kicker:String(s.kicker||'').slice(0,40),title:String(s.title||'').slice(0,40),sub:String(s.sub||'').slice(0,60),tone:s.tone,progress:Boolean(s.progress)};}
+    else{const s=cue.screen;if(!TONES.includes(s.tone))throw Error(`Line ${i+1}: unknown screen tone.`);const kind=s.kind??'card';if(!SCREEN_KINDS.includes(kind))throw Error(`Line ${i+1}: unknown screen type "${kind}".`);
+      cue.screen={kicker:String(s.kicker||'').slice(0,40),title:String(s.title||'').slice(0,40),sub:String(s.sub||'').slice(0,60),tone:s.tone,progress:Boolean(s.progress)};
+      if(kind!=='card')Object.assign(cue.screen,{kind,lines:(Array.isArray(s.lines)?s.lines:[]).slice(0,SCREEN_LINES).map(l=>String(l).slice(0,80))});}
     return {...cue,id,text:cue.text.trim()};
   }).sort((a,b)=>a.start-b.start);
   for(let i=1;i<p.cues.length;i++)if(p.cues[i].start<p.cues[i-1].end)throw Error('Dialogue lines must not overlap.');

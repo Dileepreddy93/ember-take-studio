@@ -17,11 +17,12 @@ export async function makeSound(project,voice=null,music=null){
     const g=(project.musicVolume??.6)*.75,len=music.length;
     for(let i=0;i<n;i++){const pos=(i/RATE*music.sampleRate)%len;ma[i]+=sample(music,0,pos)*g;mb[i]+=sample(music,1,pos)*g;}
   }else if(project.music){
-    const chords=[[130.81,164.81,196,261.63],[110,130.81,164.81,220],[87.31,130.81,174.61,220],[98,146.83,196,246.94]],g=(project.musicVolume??.6)/.6;
-    for(let beat=0;beat<project.duration/.45;beat++){
-      const start=beat*.45,ch=chords[Math.floor(beat/8)%4];note(start,1.5,ch[beat%4]*2,.046*g,Math.sin(beat)*.45);
+    const view=project.world?.view,cozy=['forest','mountains'].includes(view)||['forest','snow'].includes(project.set),space=view==='space',ocean=view==='ocean',minor=project.filmLook==='noir';
+    const chords=minor?[[130.81,155.56,196,261.63],[110,130.81,164.81,220],[87.31,130.81,155.56,207.65],[98,146.83,196,233.08]]:[[130.81,164.81,196,261.63],[110,130.81,164.81,220],[87.31,130.81,174.61,220],[98,146.83,196,246.94]],g=(project.musicVolume??.6)/.6,tempo=space?.8:ocean?.65:cozy?.58:.45;
+    for(let beat=0;beat<project.duration/tempo;beat++){
+      const start=beat*tempo,ch=chords[Math.floor(beat/8)%4];note(start,1.5,ch[beat%4]*2,(space?.022:.046)*g,Math.sin(beat)*.45,space?'pad':'bell');
       if(beat%4===0)note(start,2,ch[0]/2,.075*g,0,'pad');
-      if(beat%2===1)note(start,.14,1,.016*g,.15,'noise');
+      if(!space&&!ocean&&beat%2===1)note(start,.14,1,.016*g,.15,'noise');
     }
   }
   if(project.sfx!==false){

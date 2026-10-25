@@ -1,0 +1,25 @@
+# title: The Undo Button
+# theme: night-city
+# set: desk
+# time: night
+# camera: cinematic
+# look: cinematic
+# style: lowpoly
+# world: surface=laptop props=lamp,mug lights=on
+# cast: NAVI = creator top=#355870 accent=#b8c7ce hairStyle=short voice=af_heart
+# cast: PIP = mascot shape=round top=#d19a48 accent=#805b30 eyes=#1e2428 voice=am_puck
+>> SCREEN terminal info: release.log | $ deploy --preview | Preview ready. | Production unchanged.
+NAVI [curious, explain]: Pip. Why is there an undo button on my coffee?
+PIP [happy, hop]: You asked for fewer irreversible decisions.
+NAVI [worried, point-screen]: Does it undo the coffee, or the morning?
+>> SCREEN chat calm: Team chat | Navi: what did you change? | Pip: technically, yesterday.
+PIP [neutral, shrug]: Depends how long you hold it.
+>> BEAT: 1.1
+NAVI [surprised, handsup]: I held it through the meeting.
+PIP [curious, think]: Which meeting?
+>> SCREEN inbox alert: Calendar | No meetings found. | Your manager remembers everything.
+NAVI [worried, facepalm]: The one where I got promoted.
+PIP [sad, nod]: That explains the smaller mug.
+NAVI [angry, crossarms]: Can you undo the undo button?
+>> SCREEN code success: coffee.js | - undoEverything(); | + askFirst();
+PIP [idea, thumbsup, pause=1.1]: Sure. But first, a very small meeting.

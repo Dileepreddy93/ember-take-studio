@@ -48,10 +48,15 @@ test('an imported Mixamo character stands at studio height and its hand reaches 
   const gltf=await new GLTFLoader().parseAsync(xbot.buffer.slice(xbot.byteOffset,xbot.byteOffset+xbot.byteLength),'');
   const r=buildImportedRig({id:'x1',name:'X',kind:'imported',look:{height:1},asset:{id:'abcdef1'}},gltf),scene=new THREE.Scene();scene.add(r.root);r.root.position.set(0,.26,0);r.root.updateMatrixWorld(true);
   const box=new THREE.Box3().setFromObject(r.model);assert.ok(Math.abs(box.max.y-box.min.y-3.4)<.05,`height ${box.max.y-box.min.y}`);
-  const pose=(name,local=1.2)=>{animateImported(r,{t:3,talk:0,beat:0,face:{...FACES.neutral,emotion:'neutral'},action:{name,k:1,local,dur:2.5},baseY:.26,cueIndex:0,look:new THREE.Vector3(0,4,12),partner:new THREE.Vector3(2,3,0),screen:new THREE.Vector3(0,4.3,-4),key:new THREE.Vector3(2.6,.3,1.8),camera:new THREE.Vector3(0,4,12)});r.root.updateMatrixWorld(true);};
+  const pose=(name,local=1.2,sit=0,walk=0)=>{animateImported(r,{sit,walk,t:3,talk:0,beat:0,face:{...FACES.neutral,emotion:'neutral'},action:{name,k:1,local,dur:2.5},baseY:.26,cueIndex:0,look:new THREE.Vector3(0,4,12),partner:new THREE.Vector3(2,3,0),screen:new THREE.Vector3(0,4.3,-4),key:new THREE.Vector3(2.6,.3,1.8),camera:new THREE.Vector3(0,4,12)});r.root.updateMatrixWorld(true);};
   pose('none');const rest=importedHandPos(r.arms[1]),shoulder=r.arms[1].upper.getWorldPosition(new THREE.Vector3());assert.ok(rest.y<shoulder.y-.6,'arms hang down from the T-pose');
   pose('facepalm');const brow=r.B.head.localToWorld(r.anchors.forehead.clone()).add(new THREE.Vector3(-.05,0,.06));assert.ok(importedHandPos(r.arms[0]).distanceTo(brow)<.2,`facepalm hand ${importedHandPos(r.arms[0]).distanceTo(brow).toFixed(2)} from face`);
   pose('raise');assert.ok(importedHandPos(r.arms[1]).y>r.B.head.getWorldPosition(new THREE.Vector3()).y,'raised hand above the head');
+  pose('none');const standingHead=r.B.head.getWorldPosition(new THREE.Vector3()).y;
+  pose('none',1.2,1);const seatedHead=r.B.head.getWorldPosition(new THREE.Vector3()).y;
+  assert.ok(standingHead-seatedHead>.5,'imported humanoid lowers onto its seat');
+  for(const side of ['left','right'])assert.ok(r.B[side+'Foot'].getWorldPosition(new THREE.Vector3()).y>=.1,'seated feet stay above ground');
+  pose('enter',1.2,0,1);const first=r.B.leftUpperLeg.quaternion.clone();pose('none');assert.ok(first.angleTo(r.B.leftUpperLeg.quaternion)>.1,'walking animates imported legs');
   for(const v of r.B.leftLowerArm.matrixWorld.elements)assert.ok(Number.isFinite(v));
 });
 

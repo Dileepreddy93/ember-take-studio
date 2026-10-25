@@ -2,7 +2,7 @@
 // lip sync and emotions as built-in characters, driven through the model's own humanoid bones and face shapes.
 import * as THREE from 'three';
 import {mapHumanoid,analyzeFace} from './character-import.js';
-import {gesture,backOut} from './characters.js';
+import {gesture,backOut,buildProp} from './characters.js';
 import {clamp} from './dist/timeline.js';
 
 const V=(x=0,y=0,z=0)=>new THREE.Vector3(x,y,z),PI=Math.PI;
@@ -36,6 +36,11 @@ export function buildImportedRig(member,gltf){
   const anchors={forehead:toHead(headPos.clone().add(V(0,headSize*.62,headSize*.42))),chin:toHead(headPos.clone().add(V(0,headSize*.08,headSize*.4))),face:toHead(headPos.clone().add(V(0,headSize*.4,headSize*.55)))};
   const rig={member,kind:'imported',imported:true,root,body,model,B,rest,arms,chestFrame,anchors,seed:[...member.id].reduce((a,ch)=>a+ch.charCodeAt(0),0),
     m:{sx,sy:shoulderY,reach:(arms[1].lenU+arms[1].lenF+arms[1].handOff)||1.1,hw:headSize*.55,ht:headTop-chestFrame.position.y},headSize,restHead:headPos,face:buildFaceDrivers(gltf,json,B),glow:null};
+  rig.sitDrop=TARGET_HEIGHT*member.look.height*.23;
+  rig.seat={top:TARGET_HEIGHT*member.look.height*.29,hip:TARGET_HEIGHT*member.look.height*.32,back:.3};
+  rig.restChest=chestFrame.position.clone();
+  rig.legs=['left','right'].map((side,i)=>{const upper=B[side+'UpperLeg'],lower=B[side+'LowerLeg'],hand=B[side+'Foot'];return {s:i?1:-1,upper,lower,hand,lenU:len(upper,lower),lenF:len(lower,hand),handOff:0,rest:hand?toRoot(hand):null};}).filter(l=>l.upper&&l.lower&&l.hand);
+  if(member.look.prop&&member.look.prop!=='none'&&arms[0].hand){rig.propAnchor=new THREE.Group();root.add(rig.propAnchor);rig.prop=buildProp({...rig,arms:[{hand:rig.propAnchor,handOff:0}]},member.look.prop);}
   return rig;
 }
 
@@ -101,6 +106,8 @@ export function animateImported(rig,ctx){
     toCamera:(len,up)=>()=>{const s=rig.arms[1].upper.getWorldPosition(V()),d=ctx.camera.clone().sub(s);d.y=0;d.normalize();d.y=up;return s.add(d.normalize().multiplyScalar(len));}});
   const sad=face.emotion==='sad'?1:0,angry=face.emotion==='angry'?1:0;
   rig.root.position.y=ctx.baseY+(g.root?.y||0)*k;rig.body.position.y=Math.sin(t*1.7+ph)*.006*TARGET_HEIGHT+(g.hips?.y||0)*k*.5;
+  const sit=ctx.sit||0,drop=sit*rig.sitDrop;rig.body.position.y-=drop;
+  rig.chestFrame.position.copy(rig.restChest);rig.chestFrame.position.y-=drop;
   rig.root.updateMatrixWorld(true);
   // Torso: lean, breathing, gesture chest offsets; the chest frame follows so gesture targets lean with it.
   const cx=(g.chest?.x||0)*k+angry*.06+sad*.08+talk*beat*.04+Math.sin(t*1.7+ph)*.01,cy=Math.sin(t*.65+ph)*.03+(g.chest?.y||0)*k,cz=-Math.sin(t*.55+ph)*.015;
@@ -115,11 +122,16 @@ export function animateImported(rig,ctx){
   const domI=(rig.seed+Math.floor(ctx.cueIndex||0))%2;rig.root.updateMatrixWorld(true);
   rig.arms.forEach((arm,i)=>{
     if(!arm.upper||!arm.lower||!arm.hand)return;const s=arm.s,dom=i===domI?1:.45,lift=talk*dom*(.25+beat*.55);
-    rig.chestFrame.localToWorld(_fk.set(s*m.sx*1.18,m.sy-m.reach*(.93-lift*.35),m.reach*(.1+lift*.4)));
+    rig.chestFrame.localToWorld(_fk.set(s*m.sx*1.18,m.sy-m.reach*(.93-lift*.35),m.reach*(.1+lift*.4)+(rig.prop&&i===0?.55:0)));
     const spec=g.arms?.[i];_tg.copy(_fk);
     if(spec&&k>0){const goal=spec.c?rig.chestFrame.localToWorld(V(...spec.c)):(spec.h||spec.w)();_tg.lerpVectors(_fk,goal,ease);_tg.y+=Math.sin(PI*clamp(k,0,1))*.12*(1-ease);}
     rig.chestFrame.localToWorld(_p.set(...(spec&&k>0&&spec.pole?spec.pole:[s*1.4,m.sy-1,-.7])));solveArm(arm,_tg,_p);
   });
+  if(sit){for(const leg of rig.legs){const target=rig.root.localToWorld(leg.rest.clone().add(V(0,0,sit*.65))),pole=rig.root.localToWorld(V(leg.rest.x,.8,2));solveArm(leg,target,pole);}}
+  if(rig.propAnchor){rig.root.updateMatrixWorld(true);rig.propAnchor.position.copy(rig.root.worldToLocal(rig.arms[0].hand.getWorldPosition(V())));rig.propAnchor.quaternion.copy(rig.root.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(rig.arms[0].hand.getWorldQuaternion(new THREE.Quaternion())));}
+  if(ctx.walk&&!sit){for(const [i,side] of ['left','right'].entries()){
+    if(B[side+'UpperLeg'])rotateInRoot(rig,B[side+'UpperLeg'],_e.set(Math.sin(t*8.5+i*PI)*.42*ctx.walk,0,0));
+    if(B[side+'LowerLeg'])rotateInRoot(rig,B[side+'LowerLeg'],_e.set(Math.max(0,-Math.sin(t*8.5+i*PI))*.55*ctx.walk,0,0));}}
   return {press:(g.press||0)*k};
 }
 export function importedHeadWorld(rig,out=V()){rig.root.updateMatrixWorld(true);return rig.root.localToWorld(out.copy(rig.restHead).add(V(0,rig.headSize*.4,0)));}

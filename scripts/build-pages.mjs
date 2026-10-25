@@ -22,5 +22,6 @@ for(const d of ['draco','basis'])await cp(resolve(root,'node_modules/three/examp
 await cp(resolve(root,'vendor/headtts'),resolve(out,'vendor/headtts'),{recursive:true});
 // First-visit demo: a finished, voiced reel (desktop Kokoro voices and Rhubarb lip sync).
 await cp(resolve(root,'examples/missed-being-asked.ember.json'),resolve(out,'demo.ember.json'));
+await cp(resolve(root,'showcase'),resolve(out,'showcase'),{recursive:true});
 await writeFile(resolve(out,'.nojekyll'),'');
 console.log('Static studio built in '+out);

@@ -47,7 +47,7 @@ CLAUDE [neutral, think, stand, pause=0.6]: You did. Four minutes ago.
 - Tags, any order: one emotion, one action, optional `sit`/`stand`, optional camera, optional `pause=<0–3 s>`.
 - Emotions: neutral, happy, sad, angry, surprised, worried, curious, idea.
 - Actions: none, explain, wave, point, point-screen, point-other, shrug, facepalm, think, cheer, clap, thumbsup,
-  crossarms, handsup, nod, headshake, lean, jump, type, press, raise. Hands also beat on stressed words automatically.
+  crossarms, handsup, nod, headshake, lean, jump, type, press, raise, hop, enter, exit. Hands also beat on stressed words automatically.
 - Cameras (default auto — leave them out unless a moment needs one): wide, two, fs, ms, single, cu, ecu, ots, screen. Add `:name` to frame someone else (`cu:mica`).
   Free 360° angle: `cam=<yaw>/<pitch>/<distance>/<lens mm>` (yaw 0 = in front of the subject, 90 = their left,
   180 = behind), optional `move=push|pull|orbit|rise|handheld|static`.
@@ -73,3 +73,11 @@ CLAUDE [neutral, think, stand, pause=0.6]: You did. Four minutes ago.
   `browser-voice.js` (Kokoro via vendored HeadTTS, same layout as `pipeline/voice.py`), `local-library.js` (IndexedDB, same requests as `/api/library`), `master()` in `audio.js` (−14 LUFS for browser exports).
 - Tests in `tests/import.test.mjs` use models in `../test-assets/` when present (three.js examples: Xbot, RobotExpressive, facecap) and skip otherwise.
 - `npm test` must pass after changes; `node server.mjs` rebuilds the UI bundle on start.
+
+## Craft additions
+
+- `# modulation: 0…1.6` persists voice acting strength. Match `ACTING` in `voice-modulation.js` and `pipeline/voice.py`; remap word and mouth timings whenever audio is resampled.
+- `>> SCREEN terminal|chat|code|inbox tone: window title | row | row` authors progressively revealed app screens; `screen-apps.js` draws them. Preserve old title-card documents.
+- `>> BEAT: 1.0` sets the previous line's silent pause. `presenceAt()` evaluates enter/exit from absolute time; repeated and backward seeking must remain deterministic.
+- `surface=laptop` adds a laptop stage and closing camera pullback. Showcase assets live in `showcase/` and are copied by the static build.
+- Test Python modulation with `../.venv/bin/python tests/voice_modulation_test.py`.

@@ -1,6 +1,6 @@
 import {FilmScene,FILM_LOOKS} from './scene.js';
 import {NATURE,deskParticles,DESK_TIMES} from './worlds.js';
-import {DEFAULT_PROJECT,EMOTIONS,ACTIONS,SHOTS,LOOK_OPTIONS,LOOK_RANGES,MAX_CAST,clone,validateProject,planShots,parseScript,toScript,applyScript,newCastMember,normalizeLook,SETS,WORLD_PARTICLES,THEMES,applyTheme,DESK_PROPS,writerPrompt} from './dist/timeline.js';
+import {DEFAULT_PROJECT,EMOTIONS,ACTIONS,SHOTS,LOOK_OPTIONS,LOOK_RANGES,MAX_CAST,clone,validateProject,planShots,parseScript,toScript,applyScript,newCastMember,normalizeLook,SETS,WORLD_PARTICLES,THEMES,applyTheme,DESK_PROPS,SCREEN_KINDS,writerPrompt} from './dist/timeline.js';
 import {makeSound,RATE,master} from './audio.js';
 import {exportFilm} from './exporter.js';
 import {voiceProject,voicePath,MODEL_MB,cloudVoice} from './browser-voice.js';
@@ -9,7 +9,7 @@ const $=id=>document.getElementById(id),storageKey='ember-take-project-v3';
 let project=clone(DEFAULT_PROJECT),selected=1,castSel=null,time=0,playing=false,last=0,exporting=false,scene,audioCtx,audioSource,soundBuffer,voiceBuffer,musicBuffer,aborter,server=null;
 const history=[],future=[];let audioGeneration=0,resultURL;
 const EMO={neutral:'😐 Neutral',happy:'😄 Happy',sad:'😢 Sad',angry:'😠 Angry',surprised:'😲 Surprised',worried:'😟 Worried',curious:'🤔 Curious',idea:'💡 Bright idea'};
-const ACT={none:'Natural talk (hands follow speech)',explain:'Explain with both hands',wave:'Wave',point:'Point at the camera','point-screen':'Point at the monitor','point-other':'Point at the other character',shrug:'Shrug',facepalm:'Facepalm',think:'Think (hand on chin)',cheer:'Cheer',clap:'Clap',thumbsup:'Thumbs up',crossarms:'Cross arms',handsup:'Hands up (shock)',nod:'Nod',headshake:'Shake head',lean:'Lean in, hands on hips',jump:'Jump',type:'Type',press:'Press the big key',raise:'Raise a hand (idea!)'};
+const ACT={none:'Natural talk (hands follow speech)',explain:'Explain with both hands',wave:'Wave',point:'Point at the camera','point-screen':'Point at the monitor','point-other':'Point at the other character',shrug:'Shrug',facepalm:'Facepalm',think:'Think (hand on chin)',cheer:'Cheer',clap:'Clap',thumbsup:'Thumbs up',crossarms:'Cross arms',handsup:'Hands up (shock)',nod:'Nod',headshake:'Shake head',lean:'Lean in, hands on hips',hop:'Double hop',enter:'Walk into the scene',exit:'Walk out after this line',jump:'Jump',type:'Type',press:'Press the big key',raise:'Raise a hand (idea!)'};
 const shotName=s=>({auto:'Auto · the director picks',wide:'Wide · the whole cast',two:'Two shot',single:'Single · medium',cu:'Close-up',ots:'Over the shoulder',screen:'Monitor insert',custom:'Custom 360° angle'})[s]||s;
 const nameOf=id=>id==='all'?'whole cast':project.cast.find(c=>c.id===id)?.name||id,castIdx=id=>Math.max(0,project.cast.findIndex(c=>c.id===id));
 const FALLBACK_VOICES={'American female':['af_heart','af_bella','af_nicole','af_sarah','af_sky'],'American male':['am_michael','am_puck','am_fenrir','am_echo','am_adam'],'British female':['bf_emma','bf_isabella'],'British male':['bm_george','bm_lewis']};
@@ -41,7 +41,7 @@ function fillLine(){
   if(c){selected=c.id;$('selected-label').textContent=`LINE ${String(project.cues.indexOf(c)+1).padStart(2,'0')} · ${nameOf(c.speaker).toUpperCase()}`;for(const k of ['speaker','start','end','emotion','action','shot','pause'])$(k).value=c[k];$('stance').value=c.stance||'';$('dialogue').value=c.text;
     options($('subject'),[['',`Speaker (${nameOf(c.speaker)})`],...project.cast.map(m=>[m.id,m.name]),...(c.shot==='custom'?[['all','Whole cast']]:[])]);$('subject').value=c.subject&&c.subject!==c.speaker?c.subject:'';
     $('custom-cam').hidden=c.shot!=='custom';$('customize-cam').hidden=c.shot==='custom';if(c.cam)showCam(c.cam);
-    const s=c.screen;$('screen-on').checked=Boolean(s);$('screen-box').open=Boolean(s);$('screen-tone').value=s?.tone||'calm';$('screen-kicker').value=s?.kicker||'';$('screen-title').value=s?.title||'';$('screen-sub').value=s?.sub||'';$('screen-progress').checked=Boolean(s?.progress);}
+    const s=c.screen;$('screen-kind').value=s?.kind||'card';$('screen-lines').value=(s?.lines||[]).join('\n');$('screen-lines-field').hidden=!s?.kind||s.kind==='card';$('screen-on').checked=Boolean(s);$('screen-box').open=Boolean(s);$('screen-tone').value=s?.tone||'calm';$('screen-kicker').value=s?.kicker||'';$('screen-title').value=s?.title||'';$('screen-sub').value=s?.sub||'';$('screen-progress').checked=Boolean(s?.progress);}
   else{$('dialogue').value='';$('selected-label').textContent='ADD A LINE TO BEGIN';}
   for(const k of ['apply-line','delete-line','duplicate-line'])$(k).disabled=!c;
 }
@@ -53,6 +53,7 @@ function refresh(){
   for(const [id,k] of [['camera-style','cameraStyle'],['character-style','characterStyle'],['film-look','filmLook'],['camera-flow','cameraFlow'],['warmth','warmth'],['duration','duration'],['handle','handle'],['caption-style','captionStyle'],['end-title','endTitle'],['end-sub','endSub'],['music-volume','musicVolume']])$(id).value=project[k];
   for(const [id,k] of [['captions','captions'],['dof','dof'],['intro','intro'],['music','music'],['sfx','sfx'],['ambience','ambience']])$(id).checked=project[k];
   document.querySelectorAll('input[name=engine]').forEach(r=>r.checked=r.value===project.voiceEngine);
+  $('voice-modulation').value=project.voiceModulation??1;$('voice-modulation-value').textContent=Number(project.voiceModulation??1).toFixed(1);
   $('sound').textContent=project.music?'♫ Sound on':'♫ Score off';$('sound').setAttribute('aria-pressed',String(project.music));$('undo').disabled=!history.length;$('redo').disabled=!future.length;
   const voiced=project.cues.filter(c=>c.visemes).length;
   $('voice-status').textContent=project.voiceData?(voiced?`Voiced and lip-synced: ${voiced} of ${project.cues.length} lines.`:'Your recording is loaded and plays with the film.'):'No voice yet. Captions carry the story.';
@@ -124,7 +125,10 @@ $('studio-render').onclick=async()=>{
 
 $('play').onclick=play;$('back').onclick=()=>{stop();time=0;render();};$('scrub').oninput=()=>{audioGeneration++;stop();time=Number($('scrub').value);render();};
 $('title').onchange=()=>{try{commit({...project,title:$('title').value},{keepAudio:true})}catch(e){toast(e.message)}};
-function readScreen(){if(!$('screen-on').checked)return undefined;return {tone:$('screen-tone').value,kicker:$('screen-kicker').value,title:$('screen-title').value,sub:$('screen-sub').value,progress:$('screen-progress').checked};}
+function readScreen(){if(!$('screen-on').checked)return undefined;return {...($('screen-kind').value!=='card'?{kind:$('screen-kind').value,lines:$('screen-lines').value.split('\n').slice(0,8)}:{}),tone:$('screen-tone').value,kicker:$('screen-kicker').value,title:$('screen-title').value,sub:$('screen-sub').value,progress:$('screen-progress').checked};}
+$('screen-kind').onchange=()=>{$('screen-lines-field').hidden=$('screen-kind').value==='card';};
+$('voice-modulation').oninput=()=>{$('voice-modulation-value').textContent=Number($('voice-modulation').value).toFixed(1);};
+$('voice-modulation').onchange=()=>{commit({...project,voiceModulation:Number($('voice-modulation').value)},{keepAudio:true});toast('Regenerate voices to hear the new modulation.');};
 $('screen-on').onchange=()=>{$('screen-box').open=$('screen-on').checked;};
 $('apply-line').onclick=()=>{try{const p=clone(project),c=p.cues.find(c=>c.id===selected),text=$('dialogue').value.trim(),speaker=$('speaker').value;
   if(text!==c.text||speaker!==c.speaker||$('emotion').value!==c.emotion){delete c.visemes;delete c.words;}
@@ -161,7 +165,7 @@ const FIELDS={
   robot:{ranges:['height','build','head'],options:['glasses','hat','stance','prop'],colors:['top','accent','screen','bottom','shoes']},
   bot:{ranges:['height'],options:['stance','prop'],colors:['top','accent','screen']},
   mascot:{ranges:['height','build'],options:['shape','stance','prop'],colors:['top','accent','eyes']},
-  imported:{ranges:['height'],options:[],colors:[]}
+  imported:{ranges:['height'],options:['stance','prop'],colors:[]}
 };
 const LABELS={height:'Height',build:'Build',head:'Head size',shape:'Body shape',stance:'Starts the film',prop:'Holds',species:'Creature',hairStyle:'Hair',facialHair:'Facial hair',eyeStyle:'Eyes',topStyle:'Outfit',glasses:'Glasses',hat:'Headwear',
   skin:'Skin',hair:'Hair',eyes:'Eyes',top:'Outfit',accent:'Details',bottom:'Trousers',shoes:'Shoes',screen:'Face light'};
@@ -340,3 +344,6 @@ document.addEventListener('keydown',e=>{if(['INPUT','TEXTAREA','SELECT'].include
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&!exporting)stop();});
 // Start once every handler above exists.
 try{scene=new FilmScene($('film'),project,{loadAsset:id=>libFetch(`/library/${id}/model`).then(r=>{if(!r.ok)throw Error(`Character file ${id} is not in the library.`);return r.arrayBuffer();}),onUpdate:e=>{render();if(e)toast('A 3D character could not load: '+e.message);}});scene.setSize(540,960);$('loading').hidden=true;refresh();render();requestAnimationFrame(tick);}catch(e){$('loading').textContent='3D could not start: '+e.message;$('status').textContent='WebGL is required. Try a current browser with graphics enabled.';console.error(e);}
+
+// Give each showcase reel the audio focus while it plays.
+for(const video of document.querySelectorAll('.showcase video'))video.addEventListener('play',()=>{stop();for(const other of document.querySelectorAll('.showcase video'))if(other!==video)other.pause();});

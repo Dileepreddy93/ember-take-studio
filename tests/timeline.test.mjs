@@ -175,7 +175,7 @@ test('browser voices lay out a project like the desktop pipeline (fake synthesis
   // Each line: 0.2 s of silence, then 1 s of tone with two words and a closed-open-closed mouth.
   const synth=async(text,voice,speed)=>{const n=Math.round(1.4*RATE),pcm=new Float32Array(n);for(let i=Math.round(.2*RATE);i<Math.round(1.2*RATE);i++)pcm[i]=.5*Math.sin(i/9);
     return [{type:'audio',data:{audio:{getChannelData:()=>pcm},words:['Hello','world.'],wtimes:[200,700],wdurations:[450,450],visemes:['PP','aa','sil'],vtimes:[200,300,1150],vdurations:[100,800,50]}}];};
-  const p=validateProject(clone(DEFAULT_PROJECT)),seen=[];
+  const p=validateProject({...clone(DEFAULT_PROJECT),voiceModulation:0}),seen=[];
   const out=await voiceProject(p,'flow',(f,msg)=>seen.push(f),synth);
   assert.match(out.voiceData,/^data:audio\/wav;base64,/);assert.equal(out.voiceEngine,'kokoro');
   const c0=out.cues[0];assert.equal(c0.start,1.4);// intro lead, as in pipeline/voice.py

@@ -1,3 +1,4 @@
+import {drawAppScreen} from './screen-apps.js';
 import * as THREE from 'three';
 import {RoundedBoxGeometry} from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls.js';
@@ -8,7 +9,7 @@ import {BokehPass} from 'three/examples/jsm/postprocessing/BokehPass.js';
 import {GTAOPass} from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import {ShaderPass} from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import {OutputPass} from 'three/examples/jsm/postprocessing/OutputPass.js';
-import {poseAt,planShots,stanceAt,sitAt,sitsInFilm,mouthAt,faceAt,actionAt,screenAt,wordAt,beatAt,clamp,smooth,lerp} from './dist/timeline.js';
+import {poseAt,planShots,stanceAt,presenceAt,sitAt,sitsInFilm,mouthAt,faceAt,actionAt,screenAt,wordAt,beatAt,clamp,smooth,lerp} from './dist/timeline.js';
 import {buildCharacter,animateCharacter,drawFace,headWorld,disposeCharacter} from './characters.js';
 import {SoftwareRenderer} from './software-renderer.js';
 import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -60,7 +61,7 @@ export const PRESETS={
   single:{yaw:12,pitch:9,dist:6.4,lens:60,ap:.0025},cu:{yaw:8,pitch:5,dist:3.5,lens:66,ap:.0045},
   ots:{yaw:48,pitch:5,dist:5,lens:64,ap:.0042},custom:{yaw:0,pitch:8,dist:4,lens:50,ap:.0035}
 };
-const MONITOR={x:3.1,y:3.6,z:-5.4,yaw:-.2,s:.76};
+const DESK_MONITOR={x:3.1,y:3.6,z:-5.4,yaw:-.2,s:.76};
 // Desk top: warm wood with long grain and a few darker boards.
 let WOOD=null;
 function woodGrain(){if(WOOD)return WOOD;const c=document.createElement('canvas');c.width=512;c.height=512;const x=c.getContext('2d');x.fillStyle='#4e3a2f';x.fillRect(0,0,512,512);for(let b=0;b<8;b++){x.fillStyle=`rgba(${b%3?40:20},${b%3?26:14},${b%3?18:10},${.12+(b*.37%1)*.18})`;x.fillRect(0,b*64,512,64);x.fillStyle='rgba(0,0,0,.35)';x.fillRect(0,b*64,512,1.5);}
@@ -90,9 +91,11 @@ export class FilmScene{
   }
   // The desk set from world settings: a keyboard or a plain table top, an optional monitor, and chosen props.
   makeSet(w,T){
+    const MONITOR=w.surface==='laptop'?{x:0,y:3.7,z:-4.3,yaw:0,s:1.1}:DESK_MONITOR;
     const wood=material(T.desk,{roughness:.82,map:woodGrain()}),edge=material('#292e31',{metalness:.35}),key=material('#b9b3a1',{roughness:.7}),keyDark=material('#58686b'),top=-.275;
     box(this.set,90,.55,58,wood,0,-.55,4,.18);
-    if(w.surface==='keyboard'){box(this.set,13,.25,6.1,edge,0,-.12,-.1,.18);
+    if(w.surface==='laptop'){box(this.set,14.2,.23,10.2,material('#747b83',{metalness:.65,roughness:.32}),0,-.1,.6,.22);box(this.set,4.2,.02,1.9,material('#626971',{metalness:.45}),0,.027,4.15,.1);}
+    if(w.surface==='keyboard'||w.surface==='laptop'){box(this.set,13,.25,6.1,edge,0,-.12,-.1,.18);
       for(let row=0;row<5;row++)for(let col=0;col<13;col++){
         const x=(col-6)*.89+(row%2)*.14,z=(row-2)*.89;
         box(this.set,.79,.28,.74,(col===0||col===12)?keyDark:key,x,.12,z,.075);
@@ -105,7 +108,7 @@ export class FilmScene{
     // The monitor stands off to one side, angled toward the cast, so the window stays open behind them.
     const monitor=group(this.set,MONITOR.x,MONITOR.y,MONITOR.z);monitor.rotation.y=MONITOR.yaw;monitor.scale.setScalar(MONITOR.s);this.monitor=monitor;monitor.visible=w.monitor;box(monitor,11.8,6.9,.38,material('#262e35'),0,0,0,.23);box(monitor,11.5,6.6,.1,material('#0a1119'),0,0,.21,.14);
     this.screenCanvas=document.createElement('canvas');this.screenCanvas.width=1600;this.screenCanvas.height=900;this.screenCtx=this.screenCanvas.getContext('2d');this.screenTexture=new THREE.CanvasTexture(this.screenCanvas);this.screenTexture.colorSpace=THREE.SRGBColorSpace;const sm=new THREE.MeshBasicMaterial({map:this.screenTexture});const sp=new THREE.Mesh(new THREE.PlaneGeometry(11.13,6.22),sm);sp.position.set(0,.06,.278);monitor.add(sp);sphere(monitor,.045,material('#d3bd81',{emissive:'#a68955',emissiveIntensity:1}),0,-3.28,.25,8);
-    if(w.monitor)box(this.set,.8,1.5,.45,edge,MONITOR.x+.05,.3,MONITOR.z-.3,.08);
+    if(w.monitor&&w.surface!=='laptop')box(this.set,.8,1.5,.45,edge,MONITOR.x+.05,.3,MONITOR.z-.3,.08);
     // Props stand on the desk top and give the tiny cast a sense of scale.
     const has=k=>w.props.includes(k),prop=(x,z)=>group(this.set,x,top,z);
     if(has('lamp')){const lamp=prop(-8.6,-4.6);cyl(lamp,.65,.8,.15,edge,0,.075,0,24);line(lamp,[[0,0,0],[0,3,0],[.8,5,0],[1.5,5.1,0]],'#94795b',.08);const shade=new THREE.Mesh(new THREE.ConeGeometry(.75,.65,20,1,true),material('#bd9870',{side:THREE.DoubleSide}));shade.position.set(1.5,4.8,0);lamp.add(shade);sphere(lamp,.22,material('#ffe4ba',{emissive:'#ffca86',emissiveIntensity:3}),1.5,4.5,0);}
@@ -173,7 +176,7 @@ export class FilmScene{
     for(const r of this.rigs){this.cast.remove(r.root);this.cast.remove(r.shadow);this.later(()=>{if(r.imported)disposeImported(r);else if(!r.loading)disposeCharacter(r);});}
     const pending=[];
     const slots=LAYOUT[p.cast.length]||LAYOUT[4];
-    this.rigs=p.cast.map((m,i)=>{const rig=m.kind==='imported'?this.importedPlaceholder(m,pending,key):buildCharacter(m,p.characterStyle),[x,z]=slots[i];const gy=this.world.groundY;rig.root.position.set(x,gy,z);rig.root.rotation.y=-x*.07;rig.baseYaw=rig.root.rotation.y;rig.baseY=gy;this.cast.add(rig.root);
+    this.rigs=p.cast.map((m,i)=>{const rig=m.kind==='imported'?this.importedPlaceholder(m,pending,key):buildCharacter(m,p.characterStyle),[x,z]=slots[i];const gy=this.world.groundY;rig.root.position.set(x,gy,z);rig.root.rotation.y=-x*.07;rig.baseYaw=rig.root.rotation.y;rig.baseY=gy;rig.baseX=x;rig.baseZ=z;this.cast.add(rig.root);
       const sh=new THREE.Mesh(new THREE.PlaneGeometry(2.1,1.6),new THREE.MeshBasicMaterial({map:softShadow(),transparent:true,depthWrite:false}));sh.rotation.x=-PI/2;sh.position.set(x,gy+.015,z+.05);sh.scale.setScalar(m.look.height*(m.kind==='bot'?1:m.look.build*(m.kind==='mascot'?1.3:.95)));this.cast.add(sh);rig.shadow=sh;
       if(!rig.imported&&!rig.loading&&sitsInFilm(p,m.id))rig.seatMesh=this.makeSeat(rig,p.set);return rig;});
     this.updateHeads();this.ready=Promise.all([...pending,this.worldReady]);
@@ -182,7 +185,7 @@ export class FilmScene{
   // Seated characters are lower: shift their framing landmarks and eyeline points by how far the hips have dropped.
   applySit(p,t){
     this.heads={};this.marks={};
-    for(const r of this.rigs){const id=r.member.id;r.sit=r.imported||r.loading?0:sitAt(p,t,id);const drop=r.sit?r.sit*(r.plan.leg-r.seat.hip)*r.root.scale.y:0,b=this.baseMarks[id],h=this.baseHeads[id];
+    for(const r of this.rigs){const id=r.member.id;r.sit=r.loading?0:sitAt(p,t,id);const drop=r.sit?(r.imported?r.sit*r.sitDrop:r.sit*(r.plan.leg-r.seat.hip)*r.root.scale.y):0,b=this.baseMarks[id],h=this.baseHeads[id];
       if(!b||!h)continue;this.heads[id]=drop?h.clone().setY(h.y-drop):h;this.marks[id]=drop?{...b,crown:b.crown-drop,eye:b.eye-drop,chin:b.chin-drop,shoulder:b.shoulder-drop,waist:b.waist-drop*.7}:b;}
   }
   // A seat behind the character's standing spot, sized to their legs: a stack of books on the desk, a stump outdoors.
@@ -200,8 +203,8 @@ export class FilmScene{
     const job=this.asset(member.asset.id)
       .then(buf=>this.makeLoader().parseAsync(buf.slice(0),''))
       .then(gltf=>{if(this.castKey!==key)return;const real=buildImportedRig(member,gltf),i=this.rigs.indexOf(rig);if(i<0)return;
-        real.root.position.copy(rig.root.position);real.root.rotation.y=rig.root.rotation.y;real.baseYaw=rig.baseYaw;real.baseY=rig.baseY;real.shadow=rig.shadow;
-        this.cast.remove(rig.root);this.cast.add(real.root);this.rigs[i]=real;this.updateHeads();this.onUpdate?.();})
+        real.root.position.copy(rig.root.position);real.root.rotation.y=rig.root.rotation.y;real.baseYaw=rig.baseYaw;real.baseY=rig.baseY;real.baseX=rig.baseX;real.baseZ=rig.baseZ;real.shadow=rig.shadow;
+        this.cast.remove(rig.root);this.cast.add(real.root);this.rigs[i]=real;if(sitsInFilm(this.project,member.id))real.seatMesh=this.makeSeat(real,this.project.set);this.updateHeads();this.onUpdate?.();})
       .catch(e=>{rig.error=e.message;ghost.material.color.set('#c0503c');console.error('Imported character failed to load:',e);this.onUpdate?.(e);});
     pending.push(job);return rig;
   }
@@ -241,19 +244,20 @@ export class FilmScene{
     // Lead room: shift the frame so the subject sits off-centre, away from the side their partner is on.
     const lead=(center,ay,W,toward,amt)=>{const right=new THREE.Vector3(Math.cos(ay),0,-Math.sin(ay)),sgn=Math.sign(new THREE.Vector3(toward.x-S.x,0,toward.z-S.z).dot(right))||0;return center.addScaledVector(right,amt*sgn*W);};
     const single=(size)=>{
+      if(rig.kind==='mascot'&&['ecu','cu','single'].includes(size))size='fs';
       const hr=(S.crown-S.chin)/1.9,T={ecu:[S.eye+.55*hr,S.chin-.12*hr,.12,.58,85,8,0,.005],cu:[S.crown,S.chin-.55*hr,.13,.58,75,12,-2,.0045],single:[S.crown,S.shoulder-.42*(S.shoulder-S.waist),.14,.6,60,18,1,.003],ms:[S.crown,S.waist-.15*S.scale,.15,.64,50,15,5,.0022],fs:[S.crown,S.feet,.16,.8,40,10,7,.0012]}[size];
-      const [top,bottom,ft,fb,lens,yaw0,pitch,ap]=T,fr=fit(top,bottom,ft,fb,lens),yaw=yaw0*(seg.subject===seg.other?0:sideOf(S,O));
+      const [top,bottom,ft,fb,lens,yaw0,pitch,ap]=T,fr=fit(top,bottom,ft,fb,lens,rig.kind==='mascot'?S.width*1.45:0),yaw=yaw0*(seg.subject===seg.other?0:sideOf(S,O));
       const ay=facing+yaw*DEG,center=lead(head(S,fr.yC),ay,fr.H*aspect,O,seg.subject===seg.other?0:.07);
       return {center,yaw,pitch,dist:fr.dist,lens,ap,facing,move};
     };
     switch(seg.shot){
       case 'ecu':case 'cu':case 'single':case 'ms':case 'fs':return single(seg.shot);
-      case 'two':{const top=Math.max(S.crown,O.crown),bottom=Math.min(S.waist,O.waist)-.2*S.scale,fr=fit(top,bottom,.16,.66,45,(Math.abs(S.x-O.x)+Math.max(S.width,O.width)*1.1)*1.12);
-        return {center:new THREE.Vector3((S.x+O.x)/2,fr.yC,(S.z+O.z)/2),yaw:0,pitch:6,dist:fr.dist,lens:45,ap:.0012,facing:0,move};}
+      case 'two':{const top=Math.max(S.crown,O.crown),bottom=Math.min(S.waist,O.waist)-.2*S.scale,fr=fit(top,bottom,.12,.74,45,(Math.abs(S.x-O.x)+Math.max(S.width,O.width)*1.03)*1.04);
+        return {center:new THREE.Vector3((S.x+O.x)/2,fr.yC,(S.z+O.z)/2),yaw:0,pitch:6,dist:fr.dist,lens:45,ap:.002,facing:0,move};}
       case 'wide':{const top=Math.max(...all.map(m=>m.crown)),bottom=Math.min(...all.map(m=>m.feet)),fr=fit(top,bottom,.2,.8,35,maxX-minX+.6);
         return {center:new THREE.Vector3((minX+maxX)/2,fr.yC,all.reduce((a,m)=>a+m.z,0)/all.length),yaw:12,pitch:9,dist:fr.dist,lens:35,ap:.0007,facing:0,move};}
       case 'ots':{
-        if(seg.subject===seg.other)return single('single');
+        if(seg.subject===seg.other||rig.kind==='mascot')return single('single');
         // Camera behind the partner's outer shoulder: their head softly fills a frame edge, the speaker is framed chest-up.
         const axis=new THREE.Vector3(O.x-S.x,0,O.z-S.z).normalize(),front=new THREE.Vector3(axis.z,0,-axis.x);if(front.z<0)front.negate();
         // Far enough behind the partner, with a small sideways offset, that their head lands on the frame edge.
@@ -297,6 +301,10 @@ export class FilmScene{
         if(k<1){const from=this.shotPose(prev,st.shotStart,prev.start,st.shotStart,null),e=k*k*(3-2*k);pose.pos.lerpVectors(from.pos,pose.pos,e);pose.at=from.at.clone().lerp(pose.at,e);pose.fov=lerp(from.fov,pose.fov,e);pose.ap=lerp(from.ap,pose.ap,e);}
       }
     }
+    if(!this.focus&&!this.previewCam&&p.set==='desk'&&p.world.surface==='laptop'){
+      const last=p.cues.at(-1),reveal=last?smooth((t-last.end+.25)/1.8):0;
+      pose.pos.lerp(new THREE.Vector3(11,10,30),reveal);pose.at.lerp(new THREE.Vector3(0,2,-.5),reveal);pose.ap=lerp(pose.ap,.0004,reveal);
+    }
     this.camera.position.copy(pose.pos);this.target=pose.at;this.camera.lookAt(pose.at);this.camera.fov=pose.fov;this.camera.updateProjectionMatrix();
     if(this.bokeh){const u2=this.bokeh.uniforms;u2.focus.value=pose.pos.distanceTo(pose.at);u2.aperture.value=p.dof?pose.ap:0;u2.maxblur.value=p.dof?clamp(pose.ap*3.4,.009,.015):0;}
     const look=FILM_LOOKS[p.filmLook]||FILM_LOOKS.studio;if(this.grade){const g=this.grade.uniforms;for(const k of ['contrast','sat','fade','mono','aberr','scan'])g[k].value=look[k]??FILM_LOOKS.studio[k];g.lift.value.set(...(look.lift||[0,0,0]));g.gain.value.set(...(look.gain||[1,1,1]));g.grain.value=look.grain??.032;}
@@ -306,9 +314,17 @@ export class FilmScene{
     this.time=t;const p=this.project,st=poseAt(p,t),cue=st.cue;
     this.drawScreen(screenAt(p,t),t);this.renderer.sceneRevision=this.screenRevision;this.world.animate(t);this.applySit(p,t);
     if(!this.manual)this.placeCamera(st,this.focus?performance.now()/1000:t);else if(this.bokeh)this.bokeh.uniforms.aperture.value=0;
-    const cam=this.camera.position.clone();let press=0;const cueIndex=cue?p.cues.indexOf(cue):0;
+    const cam=this.camera.position.clone();
+    if(!this.faceFill){this.faceFill=new THREE.PointLight('#ffe0bb',12,22,2);this.scene.add(this.faceFill);}
+    const fillTarget=this.heads[st.speaker||st.subject]||new THREE.Vector3(0,3,0);
+    this.faceFill.intensity=this.rigOf(st.speaker||st.subject).kind==='mascot'?2.5:9;
+    this.faceFill.position.copy(fillTarget).lerp(cam,.35);this.faceFill.position.y+=.65;let press=0;const cueIndex=cue?p.cues.indexOf(cue):0;
     for(const rig of this.rigs){
       const id=rig.member.id,focused=this.focus===id;rig.root.visible=!this.focus||focused;if(rig.shadow)rig.shadow.visible=rig.root.visible;rig.root.rotation.y=rig.baseYaw+(focused?(performance.now()/1000*.6)%(PI*2):0);
+      const presence=this.focus?{off:0,moving:0,dir:0}:presenceAt(p,t,id),side=rig.baseX<0?-1:1;
+      rig.root.position.x=rig.baseX+side*presence.off*11;rig.root.position.z=rig.baseZ;
+      rig.root.visible=rig.root.visible&&presence.off<.999;
+      if(rig.shadow){rig.shadow.visible=rig.root.visible;rig.shadow.position.x=rig.root.position.x;}
       if(rig.loading)continue;
       // Conversation stance: bodies turn about a quarter toward whoever they are talking with.
       if(!focused){const sa=stanceAt(p,t,id),ang=to=>{const m=this.marks[to];if(!m||to===id)return 0;return clamp(Math.atan2(m.x-rig.root.position.x,m.z-rig.root.position.z),-1.6,1.6)*.28;};rig.root.rotation.y=rig.baseYaw+lerp(ang(sa.from),ang(sa.to),sa.k);}
@@ -322,7 +338,7 @@ export class FilmScene{
       const me=this.heads[id],toward=speaking?partner:cue?this.heads[st.speaker]:partner,limit=(speaking?(cueIndex===0||cueIndex===p.cues.length-1?12:30):55)*DEG;
       const aCam=Math.atan2(cam.x-me.x,cam.z-me.z),aTo=Math.atan2(toward.x-me.x,toward.z-me.z),dA=Math.atan2(Math.sin(aTo-aCam),Math.cos(aTo-aCam)),aim=aCam+clamp(dA,-limit,limit),reach=Math.max(2,toward.distanceTo(me));
       const look=new THREE.Vector3(me.x+Math.sin(aim)*reach,lerp(toward.y,cam.y,.3),me.z+Math.cos(aim)*reach);
-      const perf={t,talk,beat,nod,sit:rig.sit,face,action:act,baseY:rig.baseY,cueIndex,look,partner,screen:this.world.screenPoint,key:this.world.keyPoint,camera:cam},res=rig.imported?animateImported(rig,perf):animateCharacter(rig,perf);press=Math.max(press,res.press);if(rig.seatMesh)rig.seatMesh.position.y=-(rig.root.position.y-rig.baseY)/rig.root.scale.y;
+      const perf={t,talk,beat,nod,walk:presence.moving,walkDir:presence.dir,sit:rig.sit,face,action:act,baseY:rig.baseY,cueIndex,look,partner,screen:this.world.screenPoint,key:this.world.keyPoint,camera:cam},res=rig.imported?animateImported(rig,perf):animateCharacter(rig,perf);press=Math.max(press,res.press);if(rig.seatMesh)rig.seatMesh.position.y=-(rig.root.position.y-rig.baseY)/rig.root.scale.y;
       const u=(t*.31+rig.seed*.173)%1,blink=(u<.03?.1:1)*(Math.sin(t*1.3+rig.seed)>.997?.1:1),gaze=speaking?0:clamp((this.heads[st.speaker]?.x??cam.x)-rig.root.position.x,-1,1)*.8;
       const mouth=mouthAt(p,t,id)||{open:talk*(.45+.4*Math.abs(Math.sin(t*11+rig.seed))),wide:1,round:0,teeth:talk>.3?1:0,tongue:0};
       if(rig.imported)drawImportedFace(rig,mouth,face,blink);else drawFace(rig,mouth,face,blink,gaze,t);
@@ -349,7 +365,9 @@ export class FilmScene{
   }
   drawScreen(ss,t){
     const s=ss.screen,tone=TONES[s.tone]||TONES.calm,pct=ss.progress==null?null:Math.round(ss.progress*100),flash=clamp(1-(t-ss.since)/.35,0,1);
-    const key=`${ss.index}|${pct}|${Math.round(flash*8)}|${this.project.title}`;if(key===this.lastScreenKey)return;this.lastScreenKey=key;this.screenRevision++;
+    const typed=s.kind&&s.kind!=='card'?Math.min(1000,Math.max(0,Math.floor((t-ss.since)*32))):0;
+    const key=`${ss.index}|${typed}|${pct}|${Math.round(flash*8)}|${this.project.title}`;if(key===this.lastScreenKey)return;this.lastScreenKey=key;this.screenRevision++;
+    if(s.kind&&s.kind!=='card'){drawAppScreen(this.screenCtx,s,Math.max(0,t-ss.since),this.project.title);this.screenTexture.needsUpdate=true;return;}
     if(this.world.screen.style==='sign')return this.drawSign(s,tone,pct,flash,t,ss);
     const x=this.screenCtx,w=1600,h=900;x.fillStyle='#0c1824';x.fillRect(0,0,w,h);x.fillStyle='#142737';x.fillRect(0,0,w,75);x.fillStyle='#4f6877';for(let i=0;i<3;i++){x.beginPath();x.arc(38+i*29,37,7,0,PI*2);x.fill();}x.fillStyle='#88a0ab';x.font='22px monospace';x.textAlign='left';x.fillText('STUDIO / '+this.project.title.toUpperCase().slice(0,48),160,45);x.strokeStyle='#203849';x.lineWidth=1;for(let i=0;i<12;i++){x.beginPath();x.moveTo(0,150+i*65);x.lineTo(w,150+i*65);x.stroke();}for(let i=0;i<20;i++){x.beginPath();x.moveTo(i*90,75);x.lineTo(i*90,h);x.stroke();}
     const jitter=flash>0?Math.sin(t*90)*14*flash:0;x.save();x.translate(jitter,0);

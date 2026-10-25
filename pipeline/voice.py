@@ -24,6 +24,12 @@ RATE = 24000
 KOKORO_SPEED = {'neutral': 1.0, 'happy': 1.04, 'sad': .9, 'angry': 1.08, 'surprised': 1.1, 'worried': 1.08, 'curious': .97, 'idea': 1.04}
 # Chatterbox (exaggeration, cfg_weight): higher exaggeration is more dramatic, lower cfg gives freer pacing.
 CB_STYLE = {'neutral': (.5, .5), 'happy': (.8, .35), 'sad': (.6, .45), 'angry': (.95, .3), 'surprised': (.9, .3), 'worried': (.7, .4), 'curious': (.6, .45), 'idea': (.8, .35)}
+# Voice acting (project.voiceModulation scales it, 0 = off): each feeling shapes the voice, not only the pace.
+# (pitch, glide, wobble, energy): semitones for the whole line; semitones added from the line's start to its end
+# (surprise rises, sadness falls); a nervous tremble in semitones; loudness against a neutral line.
+# Same table as browser-voice.js ACTING.
+ACTING = {'neutral': (0, 0, 0, 1), 'happy': (1.5, .8, 0, 1), 'sad': (-1.6, -1.2, 0, .74), 'angry': (-.6, -.8, 0, 1),
+          'surprised': (2.6, 1.6, 0, 1), 'worried': (.9, .4, .35, .86), 'curious': (1, 1.4, 0, .92), 'idea': (1.8, .9, 0, 1)}
 REFERENCE_TEXT = ('Hello there. This is my natural speaking voice, calm and clear. '
                   'I can sound curious, happy or a little worried, depending on the story we tell today.')
 
@@ -72,6 +78,48 @@ def phoneme_mouths(result, offset):
         out.append([t, t + dur, shape])
         t += dur
     return out
+
+def acting(emotion, text, strength):
+    """The line's pitch contour (semitones over u = 0…1 of the take and t seconds) and its energy."""
+    pitch, glide, wobble, energy = ACTING.get(emotion, ACTING['neutral'])
+    end = text.rstrip(' "\'')
+    lift = 1.4 if end.endswith('?') else 0  # questions rise on the last words
+    bang = .5 if end.endswith('!') else 0
+    s = strength
+    def contour(u, t):
+        rise = np.clip((u - .7) / .3, 0, 1)
+        return s * (pitch + bang + glide * (u - .5) + lift * rise * rise * (3 - 2 * rise) + wobble * np.sin(2 * np.pi * 5.5 * t))
+    return contour, 1 + (energy - 1) * s
+
+def varispeed(audio, contour):
+    """Resample by a time-varying ratio 2^(semitones/12): pitch follows the contour (tempo too, which the caller's
+    synthesis speed compensates). Returns the audio and a function mapping input seconds to output seconds."""
+    n = len(audio)
+    if n < 2:
+        return audio.copy(), lambda sec: sec
+    tau = np.arange(n) / RATE
+    r = 2 ** (contour(tau / max(tau[-1], 1e-6), tau) / 12)
+    out_pos = np.concatenate([[0], np.cumsum(1 / r[:-1])])  # where each input sample lands in the output
+    src = np.interp(np.arange(int(out_pos[-1])), out_pos, np.arange(n))
+    i = np.floor(src).astype(int)
+    f = src - i
+    x = lambda k: audio[np.clip(i + k, 0, n - 1)]
+    a, b, c, d = x(-1), x(0), x(1), x(2)  # Catmull-Rom: smooth, no zipper noise
+    y = b + .5 * f * (c - a + f * (2 * a - 5 * b + 4 * c - d + f * (3 * (b - c) + d - a)))
+    return y.astype(np.float32), lambda sec: float(np.interp(sec * RATE, np.arange(n), out_pos)) / RATE
+
+def act(text, voice, speed, emotion, strength):
+    """Kokoro take with voice acting: synthesised slower or faster by the contour's mean ratio, then varispeed,
+    so the line keeps the tempo `speed` sets while its pitch moves. Word and mouth times move with the audio."""
+    contour, energy = acting(emotion, text, strength)
+    if not strength:
+        return (*kokoro(text, voice, speed), energy)
+    grid = np.linspace(0, 1, 64)
+    mean = float(np.mean(2 ** (contour(grid, grid * 0) / 12)))
+    audio, words, mouth = kokoro(text, voice, speed / mean)
+    audio, at = varispeed(audio, contour)
+    move = lambda spans: [[at(s), at(e), w] for s, e, w in spans]
+    return audio, move(words), move(mouth), energy
 
 def mouth_cues(spans, length):
     """Viseme cues [[time, shape]] from phoneme spans: merged runs, rest only for real pauses."""
@@ -138,7 +186,7 @@ def chatterbox_batch(jobs):
     if proc.wait() != 0:
         sys.exit('Chatterbox failed. See the log above.')
 
-def finish_take(key, raw_path, text, words, mouth=None):
+def finish_take(key, raw_path, text, words, mouth=None, energy=1.0):
     audio, sr = sf.read(raw_path, dtype='float32')
     if audio.ndim > 1:
         audio = audio.mean(axis=1)
@@ -152,7 +200,7 @@ def finish_take(key, raw_path, text, words, mouth=None):
         audio, words, mouth = trim(audio, words, mouth=mouth or ())
     peak = np.abs(audio).max()
     if peak > 0:
-        audio = audio * (0.89 / peak)
+        audio = audio * (0.89 * energy / peak)
     wav_path = CACHE / f'{key}.wav'
     sf.write(wav_path, audio, RATE, subtype='PCM_16')
     cues = mouth_cues(mouth, len(audio) / RATE) if mouth else visemes(wav_path, text)
@@ -170,33 +218,39 @@ def voice_project(project, layout='flow', lead=None, tail=1.6, report=progress):
     voices = {c['id']: c['voice'] for c in project.get('cast', [])} or project.get('voices') or {'Ren': 'am_michael', 'Mica': 'af_heart'}
     cues = sorted(project['cues'], key=lambda c: c['start'])
     total = len(cues)
+    strength = min(1.6, max(0.0, float(project.get('voiceModulation', 1))))
 
     keys, cb_jobs = [], []
     for i, cue in enumerate(cues):
         voice, emotion = voices[cue['speaker']], cue.get('emotion', 'neutral')
         style = KOKORO_SPEED.get(emotion, 1.0) if engine == 'kokoro' else CB_STYLE.get(emotion, (.5, .5))
-        key = hashlib.sha256(json.dumps([engine, cue['text'], voice, style, 3 if engine == 'kokoro' else 2]).encode()).hexdigest()[:16]
+        # Chatterbox acts the line itself, so it only takes the feeling's loudness.
+        acted = [emotion, round(strength, 2)] if strength else []
+        key = hashlib.sha256(json.dumps([engine, cue['text'], voice, style, 3 if engine == 'kokoro' else 2, *acted]).encode()).hexdigest()[:16]
         keys.append(key)
         if (CACHE / f'{key}.json').exists():
             report(i + 1, total, f"cached {cue['speaker']}: {cue['text']}")
             continue
         if engine == 'kokoro':
-            audio, words, mouth = kokoro(cue['text'], voice, style)
+            audio, words, mouth, energy = act(cue['text'], voice, style, emotion, strength)
             raw = CACHE / f'{key}.raw.wav'
             sf.write(raw, audio, RATE, subtype='PCM_16')
-            finish_take(key, raw, cue['text'], words, mouth)
+            finish_take(key, raw, cue['text'], words, mouth, energy)
             report(i + 1, total, f"voiced {cue['speaker']}: {cue['text']}")
         else:
             report(i, total, f"preparing {cue['speaker']} voice")
             cb_jobs.append({'key': key, 'text': cue['text'], 'ref': str(reference_clip(voice)), 'exaggeration': style[0],
-                            'cfg': style[1], 'out': str(CACHE / f'{key}.raw.wav'), 'label': f"{cue['speaker']}: {cue['text']}", 'index': i, 'total': total})
+                            'cfg': style[1], 'out': str(CACHE / f'{key}.raw.wav'), 'label': f"{cue['speaker']}: {cue['text']}", 'index': i, 'total': total,
+                            'energy': acting(emotion, cue['text'], strength)[1]})
     chatterbox_batch(cb_jobs)
     for job in cb_jobs:
-        finish_take(job['key'], pathlib.Path(job['out']), job['text'], None)
+        finish_take(job['key'], pathlib.Path(job['out']), job['text'], None, energy=job['energy'])
     if cb_jobs:
         report(total, total, 'lip sync aligned')
 
     lead = lead if lead is not None else (1.4 if project.get('intro', True) else 0.4)
+    if cues[0].get('action') == 'enter':
+        lead = max(lead, 1.6)
     cursor = lead if layout == 'flow' else 0.0
     takes = []
     for cue, key in zip(cues, keys):
@@ -210,7 +264,7 @@ def voice_project(project, layout='flow', lead=None, tail=1.6, report=progress):
         cursor = cue['end'] + (cue.get('pause', 0.45) if layout == 'flow' else 0.3)
     end = cues[-1]['end']
     if layout == 'flow':
-        project['duration'] = int(np.ceil(end + tail + (1.1 if project.get('endTitle') else 0)))
+        project['duration'] = max(5, int(np.ceil(end + tail + (1.1 if project.get('endTitle') else 0))))
         if project['duration'] > 90:
             raise VoiceError(f'The voiced film runs {project["duration"]}s; the limit is 90s. Shorten the script.')
     elif end > project['duration']:

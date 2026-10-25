@@ -73,7 +73,7 @@ export function buildCharacter(member,style='smooth'){
   const M={skin:mat(a.skin,{rough:kind==='creature'?.9:.6,sheen:kind==='creature'?.9:.45,sheenColor:shade(a.skin,.22)}),hair:mat(a.hair,{rough:.5,sheen:1,sheenColor:shade(a.hair,.35)}),
     top:robotic?mat(a.top,{rough:kind==='bot'?.36:.3,metal:kind==='robot'?.45:.05,coat:.8}):cloth(a.top),
     accent:robotic?mat(a.accent,{rough:.32,metal:.65,coat:.4}):cloth(a.accent,{sheen:.5}),bottom:cloth(a.bottom),shoes:mat(a.shoes,{rough:.6,coat:.2}),
-    eye:mat(a.eyes,{rough:.12,flat:false,coat:1}),white:mat('#f3ede4',{rough:.25,flat:false,coat:.6}),shine:mat('#ffffff',{emissive:'#ffffff',glow:.9,flat:false}),dark:mat('#1b1716',{rough:.5}),
+    eye:mat(a.eyes,{rough:.12,flat:false,coat:1}),white:mat('#f3ede4',{rough:.25,flat:false,coat:.6}),shine:mat('#ffffff',{rough:.25,flat:false}),dark:mat('#1b1716',{rough:.5}),
     screen:mat('#0f2221',{rough:.2,metal:.2,coat:1}),sole:mat(shade(a.shoes,-.35),{rough:.8}),blush:mat('#ff8f87',{rough:1,opacity:.28,flat:false})};
   const root=new THREE.Group(),hips=grp(root,0,plan.leg,0),chest=grp(hips,0,plan.chestY,0),neck=grp(chest,0,plan.neckY,0),head=grp(neck,0,plan.headY,0);
   root.scale.setScalar(a.height);head.scale.setScalar(a.head);
@@ -153,7 +153,7 @@ export function buildCharacter(member,style='smooth'){
 }
 
 // Hand-held props, parented to the right hand. In the hold pose the forearm points forward, so hand +Z faces up.
-function buildProp(rig,kind){
+export function buildProp(rig,kind){
   const arm=rig.arms[0],g=grp(arm.hand,0,-arm.handOff*.75,0),k=rig.kind==='mascot'?1:1.35;g.scale.setScalar(k);g.rotation.x=-.9;
   const dark=mat('#1d1f24',{rough:.35,coat:.8}),glass=mat('#9fd0ff',{emissive:'#7fb8ff',glow:1.6,flat:false});
   if(kind==='phone'||kind==='tablet'){const [w,l]=kind==='phone'?[.17,.3]:[.42,.3];box(g,w,l,.03,dark,0,-l/2+.05,.03,.02);const scr=new THREE.Mesh(new THREE.PlaneGeometry(w*.86,l*.86),glass);scr.position.set(0,-l/2+.05,.047);g.add(scr);}
@@ -185,7 +185,7 @@ function buildHead(rig,a,M,seed){
   rig.eyes=[];rig.pupils=[];rig.brows=[];rig.lids=[];
   for(const s of [-1,1]){
     const eye=grp(head,s*.2,C+.07,.43);rig.eyes.push(eye);const pupil=grp(eye);rig.pupils.push(pupil);
-    if(a.eyeStyle==='glossy'){const e=ball(pupil,.095,M.eye,0,0,.03,12,10);e.scale.set(.9,1.18,.5);ball(pupil,.028,M.shine,-.03,.045,.08,8,6);ball(pupil,.012,M.shine,.025,-.03,.08,6,4);
+    if(a.eyeStyle==='glossy'){const e=ball(pupil,.095,M.eye,0,0,.03,12,10);e.scale.set(.9,1.18,.5);ball(pupil,.014,M.shine,-.03,.045,.08,8,6);ball(pupil,.007,M.shine,.025,-.03,.08,6,4);
       if(Q.smooth){const ring=add(pupil,new THREE.TorusGeometry(.062,.012,8,36),mat(shade(a.eyes,.18),{rough:.2,coat:1,flat:false}),0,-.01,.072);ring.scale.set(.9,1.15,1);}}
     else if(Q.smooth){const w=ball(eye,.112,M.white,0,0,0,12,10);w.scale.set(1,1.08,.62);const iris=add(pupil,new THREE.SphereGeometry(.07,40,20),new THREE.MeshPhysicalMaterial({map:irisTexture(a.eyes),roughness:.25,clearcoat:1,clearcoatRoughness:.05}),0,0,.055);iris.scale.set(1,1,.35);
       ball(pupil,.017,M.shine,-.022,.022,.085,8,6);ball(pupil,.008,M.shine,.02,-.018,.085,6,4);}
@@ -226,8 +226,8 @@ function hair(rig,a,M,C,seed){
   if(st==='mohawk'){cap.scale.set(.98,.6,.95);for(let i=0;i<7;i++){const p=place(PI,.35+i*.2,2.2,1.3,n+=3,.7);p.position.x=0;}return;}
   if(st==='shaggy'){
     // Reference look: a mop layered from the crown to a fringe over the brow and the tops of the ears.
-    cap.scale.set(1.02,.92,1);
-    for(let i=0;i<9;i++)place(-.85+i*.21,.62+hash(n+i)*.12,2.1,1.25,n+=3);
+    cap.scale.set(1.02,.76,.94);cap.position.y+=.09;
+    for(let i=0;i<9;i++)place(-.85+i*.21,.92+hash(n+i)*.1,1.35,1.15,n+=3);
     for(const s of [-1,1])for(let i=0;i<5;i++)place(s*(1.05+i*.32),.38+hash(n+i)*.2,2.3,1.3,n+=3);
     for(let i=0;i<7;i++)place(PI-.9+i*.3,.3+hash(n+i)*.25,2.4,1.35,n+=3);
     for(let i=0;i<10;i++)place(i*.63,1.05+hash(n+i)*.25,1.8,1.5,n+=3);
@@ -371,6 +371,7 @@ export function gesture(name,l,d,g){
     case 'nod':return {head:{x:osc(8,.14)}};
     case 'headshake':return {head:{y:osc(9,.3)}};
     case 'lean':return {chest:{x:.2},head:{x:.06},arms:[{c:[-m.sx*1.05,m.sy-L*.82,-.05],shape:'fist'},{c:[m.sx*1.05,m.sy-L*.82,-.05],shape:'fist'}]};
+    case 'hop':{const phase=clamp(l,0,1.05),bounce=Math.abs(Math.sin(phase/1.05*PI*2));return {root:{y:bounce*.3},head:{z:Math.sin(phase*8)*.05},arms:[{c:[-m.sx*1.15,m.sy-L*.75,L*.12],shape:'open'},{c:[m.sx*1.15,m.sy-L*.75,L*.12],shape:'open'}]};}
     case 'jump':{const squat=smooth(l/.22)*(1-smooth((l-.22)/.08)),air=Math.max(0,Math.sin(clamp((l-.28)/.55,0,1)*PI)),land=smooth((l-.83)/.08)*(1-smooth((l-.95)/.2));
       // Arms swing out for the take-off and flight, then settle back to the sides after landing (no held T-pose).
       const out=smooth(l/.2)*(1-smooth((l-.95)/.3)),ay=lerp(m.sy-L*.85,m.sy+L*.5*air-L*.4*squat,out),ax=m.sx*lerp(1.05,1.2,out);
@@ -391,9 +392,10 @@ export function animateCharacter(rig,ctx){
   // Body: breathing, weight shift, emotion posture, gesture offsets.
   const sad=face.emotion==='sad'?1:0,angry=face.emotion==='angry'?1:0;
   rig.root.position.y=ctx.baseY+(g.root?.y||0)*k*rig.root.scale.y;
-  const sit=ctx.sit||0,S=rig.seat;
+  const walk=ctx.walk||0,step=t*8.5,sit=ctx.sit||0,S=rig.seat;
+  rig.root.position.y+=Math.abs(Math.sin(step))*.035*walk;
   rig.hips.position.set(Math.sin(t*.55+ph)*.025*(1-sit*.7),lerp(rig.plan.leg+(g.hips?.y||0)*k-sad*.03,S.hip,sit)+Math.sin(t*1.7+ph)*.006,-S.back*sit);
-  for(const f of rig.feet){const r=f.userData.rest;f.position.set(r.x*(1+.15*sit),r.y,r.z+.14*sit);}
+  for(const f of rig.feet){const r=f.userData.rest;f.position.set(r.x*(1+.15*sit),r.y+Math.max(0,Math.sin(step+(r.x<0?0:PI)))*.17*walk,r.z+.14*sit+Math.cos(step+(r.x<0?0:PI))*.22*walk);}
   rig.hips.children.forEach(o=>{if(o.userData.rear)o.visible=sit<.3;});rig.hips.rotation.set(0,Math.sin(t*.4+ph)*.03,Math.sin(t*.55+ph)*.02);
   rig.chest.rotation.set((g.chest?.x||0)*k+angry*.06+sad*.08+talk*beat*.04+sit*.07,Math.sin(t*.65+ph)*.03+(g.chest?.y||0)*k,-Math.sin(t*.55+ph)*.015);
   rig.chest.scale.set(1,1+Math.sin(t*1.7+ph)*.012,1+Math.sin(t*1.7+ph)*.008);
@@ -421,6 +423,7 @@ export function animateCharacter(rig,ctx){
       rig.chest.localToWorld(_pl.set(...(spec.pole||[s*1.4,rig.plan.shoulderY-1,-.7])));
       solveLimb(arm,_tg,_pl);shape=SHAPES[spec.shape||'relaxed'].map((v,j)=>lerp(shape[j],v,ease));wrist=(spec.wrist||[0,0,0]).map(v=>v*ease);
     }
+    if(walk){arm.upper.rotateX(Math.sin(step+i*PI)*.45*walk);}
     arm.hand.rotation.set(wrist[0],wrist[1],wrist[2]);
     arm.fingers.forEach((f,j)=>f.rotation.set(0,0,-s*shape[0]*(1+j*.08)));arm.index.rotation.set(0,0,-s*shape[1]);arm.thumb.rotation.set(0,0,-s*shape[2]);
   });

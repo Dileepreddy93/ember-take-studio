@@ -114,6 +114,7 @@ http.createServer(async(req,res)=>{
     // Decoders for compressed models (Draco, KTX2/Basis), served from three.js.
     if(/^\/vendor\/(draco|basis)\/[\w.]+$/.test(path)){const [, ,dir,file]=path.split('/');return serveFile(req,res,resolve(root,'node_modules/three/examples/jsm/libs',dir,file));}
     if(path.startsWith('/renders/')){const file=resolve(rendersDir,path.slice(9));if(!inside(rendersDir,file))return send(res,403,{error:'Forbidden'});return serveFile(req,res,file);}
+    if(path.startsWith('/showcase/')){const dir=resolve(root,'showcase'),file=resolve(dir,path.slice(10));if(!inside(dir,file))return send(res,403,{error:'Forbidden'});return serveFile(req,res,file);}
     const dist=resolve(root,'dist'),file=resolve(dist,path==='/'?'index.html':path.slice(1));
     if(!inside(dist,file))return send(res,403,{error:'Forbidden'});return serveFile(req,res,file);
   }catch(e){send(res,e.status||500,{error:e.message});}

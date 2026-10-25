@@ -1,3 +1,4 @@
+import {acting,modulate} from './voice-modulation.js';
 // Voices and lip sync on the viewer's own device: the same Kokoro voices as the desktop engine, run in the browser by
 // HeadTTS (WebGPU, or WASM where WebGPU is missing), laid out exactly like pipeline/voice.py so the online studio
 // produces the same voiced project: trimmed takes, word timings, mouth shapes and one WAV voice track.
@@ -35,9 +36,10 @@ export function connectVoices(onProgress){
 }
 
 // One line: synthesise (split sentences are joined end to end), then trim and level like the desktop pipeline.
-async function take(text,voice,speed,synth){
-  const key=JSON.stringify([text,voice,speed]);if(!synth&&takes.has(key))return takes.get(key);
-  const msgs=await (synth?synth(text,voice,speed):tts.synthesize({input:text,voice,language:'en-us',speed}));
+async function take(text,voice,speed,synth,emotion,strength){
+  const performance=acting(emotion,text,strength);
+  const key=JSON.stringify([text,voice,speed,emotion,performance.strength]);if(!synth&&takes.has(key))return takes.get(key);
+  const msgs=await (synth?synth(text,voice,speed/performance.mean):tts.synthesize({input:text,voice,language:'en-us',speed:speed/performance.mean}));
   const parts=[],words=[],marks=[];let offset=0;
   for(const m of msgs||[]){
     if(m?.type==='error')throw Error(m.data?.error||'Speech synthesis failed.');
@@ -48,11 +50,13 @@ async function take(text,voice,speed,synth){
   }
   if(!parts.length)throw Error('No audio was produced for: '+text);
   let audio=new Float32Array(parts.reduce((n,p)=>n+p.length,0));{let o=0;for(const p of parts){audio.set(p,o);o+=p.length;}}
+  if(performance.strength){const changed=modulate(audio,performance.contour,RATE);audio=changed.audio;
+    for(const spans of [words,marks])for(const span of spans){span[0]=changed.at(span[0]);span[1]=changed.at(span[1]);}}
   // Trim leading/trailing silence (2% of peak, 60 ms pad) and shift timings to match.
   let peak=0;for(const v of audio)peak=Math.max(peak,Math.abs(v));const gate=Math.max(1e-4,peak*.02);
   let a=0,b=audio.length-1;while(a<b&&Math.abs(audio[a])<=gate)a++;while(b>a&&Math.abs(audio[b])<=gate)b--;
   a=Math.max(0,a-Math.round(.06*RATE));b=Math.min(audio.length,b+Math.round(.06*RATE));audio=audio.slice(a,b);const shift=a/RATE,len=audio.length/RATE;
-  if(peak>0){const g=.89/peak;for(let i=0;i<audio.length;i++)audio[i]*=g;}
+  if(peak>0){const g=.89*performance.energy/peak;for(let i=0;i<audio.length;i++)audio[i]*=g;}
   const r3=n=>Math.round(n*1000)/1000,clampT=t=>Math.min(len,Math.max(0,t-shift));
   // Mouth cues: each viseme where it starts, rest between words and at the end.
   const visemes=[];let lastEnd=0;
@@ -71,14 +75,14 @@ export async function voiceProject(project,layout,onProgress,synth=null){
   const p=JSON.parse(JSON.stringify(project)),voices=Object.fromEntries(p.cast.map(c=>[c.id,c.voice])),cues=[...p.cues].sort((x,y)=>x.start-y.start),got=[];
   for(const [i,cue] of cues.entries()){
     const name=p.cast.find(c=>c.id===cue.speaker)?.name||cue.speaker;onProgress?.(.3+.65*i/cues.length,`Voicing ${name}: ${cue.text}`);
-    got.push(await take(cue.text,voices[cue.speaker]||'af_bella',SPEED[cue.emotion]||1,synth));
+    got.push(await take(cue.text,voices[cue.speaker]||'af_bella',SPEED[cue.emotion]||1,synth,cue.emotion,p.voiceModulation??1));
   }
-  let cursor=layout==='flow'?(p.intro!==false?1.4:.4):0;
+  let cursor=layout==='flow'?Math.max(p.intro!==false?1.4:.4,cues[0]?.action==='enter'?1.6:0):0;
   cues.forEach((cue,i)=>{const len=got[i].audio.length/RATE,start=layout==='flow'?cursor:Math.max(cue.start,cursor);
     cue.start=Math.round(start*1000)/1000;cue.end=Math.round((start+len+.1)*1000)/1000;cue.visemes=got[i].visemes;cue.words=got[i].words;
     cursor=cue.end+(layout==='flow'?(cue.pause??.45):.3);});
   const end=cues.at(-1).end;
-  if(layout==='flow'){p.duration=Math.ceil(end+1.6+(p.endTitle?1.1:0));if(p.duration>90)throw Error(`The voiced film runs ${p.duration}s; the limit is 90s. Shorten the script.`);}
+  if(layout==='flow'){p.duration=Math.max(5,Math.ceil(end+1.6+(p.endTitle?1.1:0)));if(p.duration>90)throw Error(`The voiced film runs ${p.duration}s; the limit is 90s. Shorten the script.`);}
   else if(end>p.duration)throw Error(`Voiced lines run to ${end.toFixed(1)}s, past the ${p.duration}s film. Shorten text or choose “Fit the film to the voices”.`);
   const track=new Float32Array(Math.round(p.duration*RATE));
   cues.forEach((cue,i)=>{const at=Math.round(cue.start*RATE),a=got[i].audio;for(let j=0;j<a.length&&at+j<track.length;j++)track[at+j]+=a[j];});

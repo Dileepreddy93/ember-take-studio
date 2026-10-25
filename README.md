@@ -136,7 +136,7 @@ KAI [sad, stand]: It didn't ask me one question.
 |---|---|
 | Feeling | neutral, happy, sad, angry, surprised, worried, curious, idea |
 | Action | none, explain, wave, point, point-screen, point-other, shrug, facepalm, think, cheer, clap, thumbsup, crossarms, handsup, nod, headshake, lean, jump, type, press, raise |
-| Pose | `sit` or `stand`: the speaker sits down or stands up from this line on (a seat appears behind anyone who sits; built-in characters only, imported models keep standing) |
+| Pose | `sit` or `stand`: the speaker sits down or stands up from this line on (a seat appears behind anyone who sits; built-in characters and imported humanoids with mapped leg bones) |
 | Camera (default auto) | wide, two, single, cu, ots, screen (`cu:mica` frames Mica); `cam=yaw/pitch/dist/lens` for a 360° angle |
 | Pause | `pause=0.8` seconds of silence after the line |
 | Monitor | `>> SCREEN alert|calm|info|success [+progress]: KICKER | Title | Subtitle` before a line |
@@ -171,3 +171,26 @@ and how Claude Code can write and render episodes. Stills for quick framing chec
 (`npm run build` does it by hand); the bundle is not committed.
 
 Original source and scene assets: MIT, copyright 2026 Ember Take contributors.
+
+## Reel craft controls
+
+The Voice tab's **Voice modulation** slider (0–1.6) shapes pitch, question rises, tremble and energy from each line's feeling. Set it to 0 for the original delivery. Regenerate voices after changing it. This is deterministic audio processing over free Kokoro, not an ElevenLabs replacement; large settings can sound stylized. Browser and Python implementations remap word and mouth timing with the audio.
+
+Scripts can carry `# modulation: 1.0`. Use `>> BEAT: 1.0` after dialogue for a silent reaction, or the existing `pause=1.0` tag. `enter`, `exit` and `hop` actions walk a character onto their mark, walk them off after speaking, or make a double hop. The first entrance reserves enough lead time to appear on screen.
+
+App screens accept a window title followed by up to eight rows, separated by `|`:
+
+```text
+>> SCREEN terminal info: release.log | $ npm test | PASS
+>> SCREEN chat calm: Team chat | Navi: ready? | Pip: ready.
+>> SCREEN code success: coffee.js | - undoEverything(); | + askFirst();
+>> SCREEN inbox alert: Calendar | No meetings found. | Your manager remembers everything.
+```
+
+Choose **Screen type** in the Scene tab to edit these rows. Existing title-card scripts still work. App rows reveal progressively; a monitor without events displays a quiet editor instead of an oversized title.
+
+Choose **A laptop · ending pullback** in World → They stand on, or `# world: surface=laptop`, for a laptop stage and a closing reveal. Leave the end-title card empty if you want the reveal fully visible. Generated music changes pace and texture for ocean, space and nature settings; your uploaded music still takes precedence.
+
+Imported humanoids expose sitting and held props in Cast. Pose quality depends on the model's bone mapping and proportions; arbitrary non-humanoid models are not automatically retargeted.
+
+The opening showcase contains small previews made from this studio's own renders. The original script for the new proof is `examples/the-undo-button.script.txt`. Run `../.venv/bin/python tests/voice_modulation_test.py` for Python modulation checks in addition to `npm test`.
