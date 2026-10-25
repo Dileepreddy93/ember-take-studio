@@ -8,12 +8,17 @@ const SPEED={neutral:1,happy:1.04,sad:.9,angry:1.08,surprised:1.1,worried:1.08,c
 const MOUTH={sil:'X',PP:'A',FF:'G',TH:'H',DD:'B',kk:'B',CH:'B',SS:'B',nn:'B',RR:'E',aa:'D',E:'C',I:'B',O:'E',U:'F'};
 let tts=null,connecting=null;const takes=new Map();
 
-// WebGPU only on a real graphics adapter: a software or fallback adapter emulates the GPU on the CPU and is far
-// slower than the WASM path, so those devices use WASM.
-async function endpoints(){
-  try{const a=await navigator.gpu?.requestAdapter();const info=a?.info||{};
-    if(a&&!a.isFallbackAdapter&&!info.isFallbackAdapter&&!/swiftshader|llvmpipe|software|basic render/i.test(`${info.vendor} ${info.architecture} ${info.description} ${info.device}`))return ['webgpu','wasm'];}catch{}
-  return ['wasm'];
+// Which engine and model this device gets. WebGPU (full-precision model, 326 MB, needed for clean audio on the GPU)
+// only on a real desktop graphics adapter; phones and software or fallback adapters (which emulate the GPU on the
+// CPU) use WASM with the 8-bit model (92 MB), which is also the faster choice on a CPU.
+export const MODEL_MB={webgpu:326,wasm:92};
+let chosen=null;
+export async function voicePath(){
+  if(chosen)return chosen;
+  const mobile=navigator.userAgentData?.mobile??/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+  try{const a=mobile?null:await navigator.gpu?.requestAdapter();const info=a?.info||{};
+    if(a&&!a.isFallbackAdapter&&!info.isFallbackAdapter&&!/swiftshader|llvmpipe|software|basic render/i.test(`${info.vendor} ${info.architecture} ${info.description} ${info.device}`))return chosen='webgpu';}catch{}
+  return chosen='wasm';
 }
 // Loads the engine once (the first time also downloads the voice model, which the browser then keeps).
 export function connectVoices(onProgress){
@@ -21,7 +26,8 @@ export function connectVoices(onProgress){
   connecting||=(async()=>{
     const base=new URL('vendor/headtts/',document.baseURI).href,url=base+'modules/headtts.mjs';
     const {HeadTTS}=await import(/* bundler: load at runtime */ url);
-    const engine=new HeadTTS({endpoints:await endpoints(),languages:['en-us'],dictionaryURL:base+'dictionaries',audioCtx:new AudioContext({sampleRate:RATE}),defaultAudioEncoding:'wav'});
+    const path=await voicePath();
+    const engine=new HeadTTS({endpoints:path==='webgpu'?['webgpu','wasm']:['wasm'],dtypeWebgpu:'fp32',dtypeWasm:'q8',languages:['en-us'],dictionaryURL:base+'dictionaries',audioCtx:new AudioContext({sampleRate:RATE}),defaultAudioEncoding:'wav'});
     await engine.connect(null,ev=>{if(ev?.total)onProgress?.(ev.loaded/ev.total);});
     return tts=engine;
   })().catch(e=>{connecting=null;throw Error('The voice engine could not start in this browser ('+(e?.message||e)+'). Try the latest Chrome or Edge.');});
@@ -61,7 +67,7 @@ async function take(text,voice,speed,synth){
 // `synth` replaces HeadTTS (tests): (text, voice, speed) => HeadTTS-style audio messages.
 export async function voiceProject(project,layout,onProgress,synth=null){
   onProgress?.(0,'Starting the voice engine…');
-  if(!synth)await connectVoices(f=>onProgress?.(f*.3,`Downloading the voice model (first time only) · ${Math.round(f*100)}%`));
+  if(!synth){const mb=MODEL_MB[await voicePath()];await connectVoices(f=>onProgress?.(f*.3,`Downloading the voice model, ${mb} MB (first time only; your browser keeps it) · ${Math.round(f*100)}%`));}
   const p=JSON.parse(JSON.stringify(project)),voices=Object.fromEntries(p.cast.map(c=>[c.id,c.voice])),cues=[...p.cues].sort((x,y)=>x.start-y.start),got=[];
   for(const [i,cue] of cues.entries()){
     const name=p.cast.find(c=>c.id===cue.speaker)?.name||cue.speaker;onProgress?.(.3+.65*i/cues.length,`Voicing ${name}: ${cue.text}`);

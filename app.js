@@ -3,7 +3,7 @@ import {NATURE,deskParticles,DESK_TIMES} from './worlds.js';
 import {DEFAULT_PROJECT,EMOTIONS,ACTIONS,SHOTS,LOOK_OPTIONS,LOOK_RANGES,MAX_CAST,clone,validateProject,planShots,parseScript,toScript,applyScript,newCastMember,normalizeLook,SETS,WORLD_PARTICLES,THEMES,applyTheme,DESK_PROPS,writerPrompt} from './dist/timeline.js';
 import {makeSound,RATE,master} from './audio.js';
 import {exportFilm} from './exporter.js';
-import {voiceProject} from './browser-voice.js';
+import {voiceProject,voicePath,MODEL_MB} from './browser-voice.js';
 import {libraryFetch} from './local-library.js';
 const $=id=>document.getElementById(id),storageKey='ember-take-project-v3';
 let project=clone(DEFAULT_PROJECT),selected=1,castSel=null,time=0,playing=false,last=0,exporting=false,scene,audioCtx,audioSource,soundBuffer,voiceBuffer,musicBuffer,aborter,server=null;
@@ -76,7 +76,7 @@ async function watch(id,onUpdate){for(;;){const job=await api('/api/jobs/'+id);o
   try{server=await (globalThis.EMBER_STATIC?Promise.reject(Error('static build')):api('/api/status'));fillVoices(server.voices);refresh();
     const e=server.engines,ok=e.kokoro&&e.rhubarb&&e.ffmpeg;$('engine-pill').textContent=ok?`● Studio engine ready${e.chatterbox?' · expressive voices':''}`:'● Studio engine incomplete';$('engine-pill').classList.add(ok?'ok':'warn');
     const cb=document.querySelector('input[value=chatterbox]');cb.disabled=!e.chatterbox;if(!e.chatterbox)cb.closest('label').title='Expressive voices are still installing or unavailable.';loadRenders();loadLibrary();
-  }catch{server=null;loadLibrary();$('engine-pill').textContent='● Online studio · voices run on this device';$('engine-pill').classList.add('off');$('studio-render').disabled=true;const cb=document.querySelector('input[name=engine][value=chatterbox]');if(cb){cb.disabled=true;cb.closest('label').title='Expressive voices need the desktop studio';}document.querySelector('input[name=engine][value=kokoro]').checked=true;$('voice-job').textContent='Voices and lip sync are made on this device. The first time downloads the voice model (about 90 MB), then it stays in your browser.';$('studio-status').textContent='Studio-quality renders need the desktop engine. Use the browser export below.';$('browser-export-open')?.click();document.querySelector('.browser-export').open=true;}
+  }catch{server=null;loadLibrary();$('engine-pill').textContent='● Online studio · voices run on this device';$('engine-pill').classList.add('off');$('studio-render').disabled=true;const cb=document.querySelector('input[name=engine][value=chatterbox]');if(cb){cb.disabled=true;cb.closest('label').title='Expressive voices need the desktop studio';}document.querySelector('input[name=engine][value=kokoro]').checked=true;voicePath().then(p=>{$('voice-job').textContent=`Voices and lip sync are made on this device (${p==='webgpu'?'graphics card':'processor'}). The first time downloads the voice model, ${MODEL_MB[p]} MB, which your browser keeps.`;});$('studio-status').textContent='Studio-quality renders need the desktop engine. Use the browser export below.';$('browser-export-open')?.click();document.querySelector('.browser-export').open=true;}
 })();
 $('generate-voices').onclick=async()=>{
   stop();const btn=$('generate-voices');btn.disabled=true;$('voice-progress').hidden=false;$('voice-progress').value=0;
