@@ -61,10 +61,10 @@ deploy)
   if aws lambda get-function --function-name "$NAME" >/dev/null 2>&1; then
     aws lambda update-function-code --function-name "$NAME" --image-uri "$repo:latest" >/dev/null
     aws lambda wait function-updated-v2 --function-name "$NAME"
-    aws lambda update-function-configuration --function-name "$NAME" --memory-size $MEMORY --timeout $TIMEOUT >/dev/null
+    aws lambda update-function-configuration --function-name "$NAME" --memory-size $MEMORY --timeout $TIMEOUT --environment "Variables={AWS_LWA_ASYNC_INIT=true}" >/dev/null
   else
     aws lambda create-function --function-name "$NAME" --package-type Image --code ImageUri="$repo:latest" \
-      --role "$engine_role" --memory-size $MEMORY --timeout $TIMEOUT --architectures x86_64 >/dev/null
+      --role "$engine_role" --memory-size $MEMORY --timeout $TIMEOUT --environment "Variables={AWS_LWA_ASYNC_INIT=true}" --architectures x86_64 >/dev/null
   fi
   aws lambda wait function-active-v2 --function-name "$NAME"
   aws logs create-log-group --log-group-name "/aws/lambda/$NAME" 2>/dev/null || true
