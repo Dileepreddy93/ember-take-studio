@@ -68,6 +68,7 @@ CLAUDE [neutral, think, stand, pause=0.6]: You did. Four minutes ago.
 - `pipeline/voice.py` — Kokoro/Chatterbox voices, silence trim, word timings, Rhubarb visemes (cached in `.voice-cache`).
 - `scripts/render-chrome.mjs` — headless Chrome WebGL frames → ffmpeg, two-pass −14 LUFS.
 - `server.mjs` — studio UI at http://localhost:8765 plus `/api/voice` and `/api/render` jobs.
-- `scripts/build-pages.mjs` — static, engine-less build in `site/` (sets `window.EMBER_STATIC`); `.github/workflows/pages.yml` tests and deploys it to GitHub Pages on every push to `main`.
+- `scripts/build-pages.mjs` — static build in `site/` (sets `window.EMBER_STATIC`); `.github/workflows/pages.yml` tests and deploys it to GitHub Pages on every push to `main`. With no server the browser is the engine:
+  `browser-voice.js` (Kokoro via vendored HeadTTS, same layout as `pipeline/voice.py`), `local-library.js` (IndexedDB, same requests as `/api/library`), `master()` in `audio.js` (−14 LUFS for browser exports).
 - Tests in `tests/import.test.mjs` use models in `../test-assets/` when present (three.js examples: Xbot, RobotExpressive, facecap) and skip otherwise.
 - `npm test` must pass after changes; `node server.mjs` rebuilds the UI bundle on start.

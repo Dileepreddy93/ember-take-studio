@@ -1,8 +1,10 @@
 import {FilmScene,FILM_LOOKS} from './scene.js';
 import {NATURE,deskParticles,DESK_TIMES} from './worlds.js';
 import {DEFAULT_PROJECT,EMOTIONS,ACTIONS,SHOTS,LOOK_OPTIONS,LOOK_RANGES,MAX_CAST,clone,validateProject,planShots,parseScript,toScript,applyScript,newCastMember,normalizeLook,SETS,WORLD_PARTICLES,THEMES,applyTheme,DESK_PROPS,writerPrompt} from './dist/timeline.js';
-import {makeSound,RATE} from './audio.js';
+import {makeSound,RATE,master} from './audio.js';
 import {exportFilm} from './exporter.js';
+import {voiceProject} from './browser-voice.js';
+import {libraryFetch} from './local-library.js';
 const $=id=>document.getElementById(id),storageKey='ember-take-project-v3';
 let project=clone(DEFAULT_PROJECT),selected=1,castSel=null,time=0,playing=false,last=0,exporting=false,scene,audioCtx,audioSource,soundBuffer,voiceBuffer,musicBuffer,aborter,server=null;
 const history=[],future=[];let audioGeneration=0,resultURL;
@@ -74,14 +76,16 @@ async function watch(id,onUpdate){for(;;){const job=await api('/api/jobs/'+id);o
   try{server=await (globalThis.EMBER_STATIC?Promise.reject(Error('static build')):api('/api/status'));fillVoices(server.voices);refresh();
     const e=server.engines,ok=e.kokoro&&e.rhubarb&&e.ffmpeg;$('engine-pill').textContent=ok?`● Studio engine ready${e.chatterbox?' · expressive voices':''}`:'● Studio engine incomplete';$('engine-pill').classList.add(ok?'ok':'warn');
     const cb=document.querySelector('input[value=chatterbox]');cb.disabled=!e.chatterbox;if(!e.chatterbox)cb.closest('label').title='Expressive voices are still installing or unavailable.';loadRenders();loadLibrary();
-  }catch{server=null;renderLibrary();$('engine-pill').textContent='○ Online studio · voices need the desktop engine';$('engine-pill').classList.add('off');for(const id of ['generate-voices','studio-render'])$(id).disabled=true;$('voice-job').textContent='Generated voices need the desktop studio (npm run studio). Here you can write, direct, preview and export, or upload your own voice recording below.';$('studio-status').textContent='Studio-quality renders need the desktop engine. Use the browser export below.';$('browser-export-open')?.click();document.querySelector('.browser-export').open=true;}
+  }catch{server=null;loadLibrary();$('engine-pill').textContent='● Online studio · voices run on this device';$('engine-pill').classList.add('off');$('studio-render').disabled=true;const cb=document.querySelector('input[name=engine][value=chatterbox]');if(cb){cb.disabled=true;cb.closest('label').title='Expressive voices need the desktop studio';}document.querySelector('input[name=engine][value=kokoro]').checked=true;$('voice-job').textContent='Voices and lip sync are made on this device. The first time downloads the voice model (about 90 MB), then it stays in your browser.';$('studio-status').textContent='Studio-quality renders need the desktop engine. Use the browser export below.';$('browser-export-open')?.click();document.querySelector('.browser-export').open=true;}
 })();
 $('generate-voices').onclick=async()=>{
-  if(!server)return;stop();const btn=$('generate-voices');btn.disabled=true;$('voice-progress').hidden=false;$('voice-progress').value=0;
+  stop();const btn=$('generate-voices');btn.disabled=true;$('voice-progress').hidden=false;$('voice-progress').value=0;
   try{
-    const engine=document.querySelector('input[name=engine]:checked')?.value||'kokoro',sent={...clone(project),voiceEngine:engine};
-    const {id}=await api('/api/voice',{project:sent,layout:$('voice-layout').value});
-    const result=await watch(id,j=>{$('voice-progress').value=j.progress;$('voice-job').textContent=j.status==='queued'?'Waiting for the studio…':j.message;});
+    let engine=document.querySelector('input[name=engine]:checked')?.value||'kokoro',result;
+    if(server){const {id}=await api('/api/voice',{project:{...clone(project),voiceEngine:engine},layout:$('voice-layout').value});
+      result=await watch(id,j=>{$('voice-progress').value=j.progress;$('voice-job').textContent=j.status==='queued'?'Waiting for the studio…':j.message;});}
+    // Online: the same Kokoro voices, generated on this device.
+    else{engine='kokoro';result=await voiceProject(project,$('voice-layout').value,(f,msg)=>{$('voice-progress').value=f;$('voice-job').textContent=msg;});}
     const keepSelected=selected;voiceBuffer=null;commit({...result,cast:project.cast,voiceEngine:engine});selected=keepSelected;time=0;fillLine();render();$('voice-job').textContent=`Done. ${project.cues.length} lines voiced, film is ${project.duration} seconds. Press play.`;toast('Voices and lip sync are ready.');
   }catch(e){$('voice-job').textContent='Could not generate voices: '+e.message;}finally{btn.disabled=false;$('voice-progress').hidden=true;}
 };
@@ -194,16 +198,18 @@ $('randomize').onclick=()=>{const m=member(),look={...m.look};
 // Character library: imported GLB/VRM models and saved built-in characters, reusable in any episode.
 const LIP={oculus:'visemes',arkit:'ARKit face',vroid:'VRoid mouth',vrm:'VRM expressions',generic:'mouth shape',jaw:'jaw bone',none:'none'};
 let library=[];
-async function loadLibrary(){if(!server)return;try{library=await api('/api/library');}catch{library=[];}renderLibrary();renderCast();}
+// The library lives on the studio engine, or online in this browser (local-library.js answers the same requests).
+const libFetch=(path,init)=>server?fetch(path,init):libraryFetch(path,init);
+async function loadLibrary(){try{const r=await libFetch('/api/library');library=r.ok?await r.json():[];}catch{library=[];}renderLibrary();renderCast();}
 function renderLibrary(){
   const list=$('library-list'),chars=library.filter(i=>i.type==='imported'||i.type==='preset');list.replaceChildren(...chars.map(item=>{const li=document.createElement('div'),info=document.createElement('div'),add=document.createElement('button'),del=document.createElement('button');li.className='library-item';
     const r=item.report;info.innerHTML=`<b></b><small><span class="badge ${item.type}">${item.type==='imported'?'3D IMPORT':'PRESET'}</span></small>`;info.querySelector('b').textContent=item.name;
     info.querySelector('small').append(item.type==='imported'?`${r.triangles.toLocaleString()} tris · lip sync: ${LIP[r.face.lipSync]}`:KIND_NAMES[item.member.kind]);
     add.className='secondary';add.textContent='Add';add.onclick=()=>addFromLibrary(item);del.className='quiet';del.textContent='✕';del.title='Delete from library';
-    del.onclick=async()=>{if(!confirm(`Delete "${item.name}" from the library? Episodes that use it will show a placeholder.`))return;try{await fetch('/api/library/'+item.id,{method:'DELETE'});await loadLibrary();}catch(e){toast(e.message)}};
+    del.onclick=async()=>{if(!confirm(`Delete "${item.name}" from the library? Episodes that use it will show a placeholder.`))return;try{await libFetch('/api/library/'+item.id,{method:'DELETE'});await loadLibrary();}catch(e){toast(e.message)}};
     li.append(info,add,del);return li;}));
-  $('library-empty').hidden=Boolean(chars.length);renderWorld();$('library-empty').textContent=server?'Saved and imported characters appear here, ready for any episode.':'Start the studio engine (npm run studio) to use the character library.';
-  for(const id of ['import-character','save-to-library'])$(id).disabled=!server||(id==='save-to-library'&&member().kind==='imported');
+  $('library-empty').hidden=Boolean(chars.length);renderWorld();$('library-empty').textContent=server?'Saved and imported characters appear here, ready for any episode.':'Saved and imported characters appear here. Online, they are kept privately in this browser.';
+  $('save-to-library').disabled=member().kind==='imported';
 }
 function addFromLibrary(item){
   try{const p=clone(project);if(p.cast.length>=MAX_CAST)throw Error(`A film holds ${MAX_CAST} characters. Remove one first.`);
@@ -211,7 +217,7 @@ function addFromLibrary(item){
     const m=item.type==='preset'?{...base,name:item.member.name||base.name,kind:item.member.kind,voice:item.member.voice||base.voice,look:normalizeLook(item.member.look)}:{...base,name:item.name,kind:'imported',voice:'am_michael',look:normalizeLook({height:1}),asset:{id:item.id,flip:false}};
     p.cast.push(m);castSel=m.id;commit(p,{keepAudio:true});scene.setFocus(m.id);render();toast(`${m.name} joined the cast.`);return m;}catch(e){toast(e.message)}
 }
-$('save-to-library').onclick=async()=>{try{const m=member();await api('/api/library/preset',{member:m});await loadLibrary();toast(`${m.name} saved to your library.`);}catch(e){toast(e.message)}};
+$('save-to-library').onclick=async()=>{try{const m=member(),r=await libFetch('/api/library/preset',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({member:m})});if(!r.ok)throw Error((await r.json()).error);await loadLibrary();toast(`${m.name} saved to your library.`);}catch(e){toast(e.message)}};
 let rightsOk=false;
 const confirmRights=()=>rightsOk||(rightsOk=confirm('Only import characters and worlds you made yourself, licensed, or that are free for commercial use (CC0, or CC-BY with credit).\n\nTV and film characters (for example Doraemon or Nobita) belong to their studios: you need their permission to use them, especially in paid client work.\n\nContinue?'));
 $('import-character').onclick=()=>{if(confirmRights())$('character-file').click();};
@@ -222,12 +228,12 @@ function showReport(r,title){
     if(r.ok&&!r.warnings.length){const c=document.createElement('div');c.className='check ok';c.innerHTML='<i>✓</i><span>Everything this studio uses is present.</span>';box.append(c);}}
 }
 async function uploadToLibrary(f,kind){
-  const res=await fetch('/api/library/import',{method:'POST',headers:{'content-type':'application/octet-stream','x-kind':kind,'x-filename':encodeURIComponent(f.name),'x-name':encodeURIComponent(f.name.replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ').slice(0,24))},body:f});
+  const res=await libFetch('/api/library/import',{method:'POST',headers:{'content-type':'application/octet-stream','x-kind':kind,'x-filename':encodeURIComponent(f.name),'x-name':encodeURIComponent(f.name.replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ').slice(0,24))},body:f});
   return {res,data:await res.json().catch(()=>({error:`Upload failed (${res.status})`}))};
 }
 $('character-file').onchange=async e=>{
   const f=e.target.files[0];$('character-file').value='';if(!f)return;$('import-add').hidden=true;showReport(null,`Checking ${f.name}…`);$('import-dialog').showModal();
-  try{const res=await fetch('/api/library/import',{method:'POST',headers:{'content-type':'application/octet-stream','x-kind':'character','x-filename':encodeURIComponent(f.name),'x-name':encodeURIComponent(f.name.replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ').slice(0,16))},body:f});
+  try{const res=await libFetch('/api/library/import',{method:'POST',headers:{'content-type':'application/octet-stream','x-kind':'character','x-filename':encodeURIComponent(f.name),'x-name':encodeURIComponent(f.name.replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ').slice(0,16))},body:f});
     const data=await res.json().catch(()=>({error:`Upload failed (${res.status})`}));
     if(!res.ok){showReport(data.report,data.report?'This character can’t be used yet':'Import failed');if(!data.report)$('import-report').textContent=data.error;return;}
     showReport(data.report,`${data.name} is in your library`);await loadLibrary();$('import-add').hidden=false;$('import-add').onclick=()=>{$('import-dialog').close();addFromLibrary(data);};
@@ -251,9 +257,8 @@ function renderWorld(){
   $('particle-grid').replaceChildren(...WORLD_PARTICLES.map(k=>{const l=document.createElement('label'),c=document.createElement('input');c.type='checkbox';c.checked=active.has(k);c.onchange=()=>{const next=new Set(active);c.checked?next.add(k):next.delete(k);setWorld({world:{particles:[...next]}});};l.append(c,' '+PARTICLE_NAMES[k]);return l;}));
   const items=type=>[['','None'],...library.filter(i=>i.type===type).map(i=>[i.id,i.name])];options($('world-backdrop'),items('backdrop'));options($('world-scene'),items('world'));$('world-backdrop').value=w.backdrop||'';$('world-scene').value=w.scene||'';
   for(const [id,k] of [['world-scale','scale'],['world-turn','turn'],['world-pano','panoHeight'],['world-ox','offsetX'],['world-oy','offsetY'],['world-oz','offsetZ']])$(id).value=w[k];
-  for(const id of ['import-world','import-backdrop'])$(id).disabled=!server;
   $('world-items').replaceChildren(...library.filter(i=>i.type==='world'||i.type==='backdrop').map(item=>{const li=document.createElement('div'),info=document.createElement('div'),del=document.createElement('button');li.className='library-item';info.innerHTML=`<b></b><small><span class="badge">${item.type==='world'?'3D WORLD':'360° BG'}</span></small>`;info.querySelector('b').textContent=item.name;info.querySelector('small').append(item.type==='world'?`${item.report.triangles.toLocaleString()} tris · ${item.report.animations} anim`:`${item.report.width}×${item.report.height} ${item.report.format}`);
-    del.className='quiet';del.textContent='✕';del.title='Delete from library';del.onclick=async()=>{if(!confirm(`Delete "${item.name}"?`))return;await fetch('/api/library/'+item.id,{method:'DELETE'});if(w.backdrop===item.id||w.scene===item.id)setWorld({world:{backdrop:w.backdrop===item.id?null:w.backdrop,scene:w.scene===item.id?null:w.scene}});loadLibrary();};li.append(info,del);return li;}));
+    del.className='quiet';del.textContent='✕';del.title='Delete from library';del.onclick=async()=>{if(!confirm(`Delete "${item.name}"?`))return;await libFetch('/api/library/'+item.id,{method:'DELETE'});if(w.backdrop===item.id||w.scene===item.id)setWorld({world:{backdrop:w.backdrop===item.id?null:w.backdrop,scene:w.scene===item.id?null:w.scene}});loadLibrary();};li.append(info,del);return li;}));
   $('world-note').textContent=p.set==='custom'&&!w.backdrop&&!w.scene?'Import or choose a 360° background or a 3D scene to build your world.':p.set==='desk'?'Time of day relights the room and the view. Snow, rain and leaves fall outside the window; motes, dust and fireflies drift inside.':'';
 }
 $('world-time').onchange=()=>setWorld({top:{timeOfDay:$('world-time').value}});
@@ -310,7 +315,7 @@ $('copy-prompt').onclick=async()=>{const prompt=writerPrompt(project,$('ai-topic
 
 $('export-open').onclick=()=>{stop();if(!globalThis.VideoEncoder)$('export-status').textContent='This browser exports a frame package with soundtrack; its included converter creates the MP4.';loadRenders();$('export-dialog').showModal();};$('close-export').onclick=()=>{if(!exporting)$('export-dialog').close();};$('export-dialog').addEventListener('cancel',e=>{if(exporting)e.preventDefault()});
 $('render').onclick=async()=>{if(exporting)return;stop();exporting=true;aborter=new AbortController();$('render').disabled=true;$('export-size').disabled=true;$('close-export').disabled=true;$('export-progress').hidden=false;$('cancel-export').hidden=false;$('export-result').hidden=true;$('export-status').textContent='Preparing soundtrack…';
-  try{const buf=await ensureAudio(),audio=[buf.getChannelData(0),buf.getChannelData(1)];const result=await exportFilm(scene,clone(project),audio,Number($('export-size').value),(n,text)=>{$('export-progress').value=n;$('export-status').textContent=text;},aborter.signal);if(resultURL)URL.revokeObjectURL(resultURL);resultURL=URL.createObjectURL(result.blob);const archive=result.kind==='frames';$('result-video').hidden=archive;if(!archive)$('result-video').src=resultURL;$('download-film').href=resultURL;$('download-film').download=fileBase()+(archive?'_render.zip':'.mp4');$('download-film').textContent=archive?'Download render package ↓':'Download film ↓';$('export-result').hidden=false;$('export-status').textContent=`Ready · ${result.width} × ${result.height} · ${result.frames} frames · ${(result.blob.size/1e6).toFixed(1)} MB`+(archive?' · Extract and run convert_video.py to create your MP4.':'');$('status').textContent='Final film rendered successfully.';
+  try{const buf=await ensureAudio(),audio=master([buf.getChannelData(0).slice(),buf.getChannelData(1).slice()]);const result=await exportFilm(scene,clone(project),audio,Number($('export-size').value),(n,text)=>{$('export-progress').value=n;$('export-status').textContent=text;},aborter.signal);if(resultURL)URL.revokeObjectURL(resultURL);resultURL=URL.createObjectURL(result.blob);const archive=result.kind==='frames';$('result-video').hidden=archive;if(!archive)$('result-video').src=resultURL;$('download-film').href=resultURL;$('download-film').download=fileBase()+(archive?'_render.zip':'.mp4');$('download-film').textContent=archive?'Download render package ↓':'Download film ↓';$('export-result').hidden=false;$('export-status').textContent=`Ready · ${result.width} × ${result.height} · ${result.frames} frames · ${(result.blob.size/1e6).toFixed(1)} MB`+(archive?' · Extract and run convert_video.py to create your MP4.':'');$('status').textContent='Final film rendered successfully.';
   }catch(e){$('export-status').textContent=e.message;console.error(e);}finally{exporting=false;$('render').disabled=false;$('export-size').disabled=false;$('close-export').disabled=false;$('cancel-export').hidden=true;render();}};
 $('cancel-export').onclick=()=>aborter?.abort();
 document.addEventListener('keydown',e=>{if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)||document.querySelector('dialog[open]'))return;
@@ -319,4 +324,4 @@ document.addEventListener('keydown',e=>{if(['INPUT','TEXTAREA','SELECT'].include
   if((e.ctrlKey||e.metaKey)&&e.key==='z'){e.preventDefault();$(e.shiftKey?'redo':'undo').click();}});
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&!exporting)stop();});
 // Start once every handler above exists.
-try{scene=new FilmScene($('film'),project,{onUpdate:e=>{render();if(e)toast('A 3D character could not load: '+e.message);}});scene.setSize(540,960);$('loading').hidden=true;refresh();render();requestAnimationFrame(tick);}catch(e){$('loading').textContent='3D could not start: '+e.message;$('status').textContent='WebGL is required. Try a current browser with graphics enabled.';console.error(e);}
+try{scene=new FilmScene($('film'),project,{loadAsset:id=>libFetch(`/library/${id}/model`).then(r=>{if(!r.ok)throw Error(`Character file ${id} is not in the library.`);return r.arrayBuffer();}),onUpdate:e=>{render();if(e)toast('A 3D character could not load: '+e.message);}});scene.setSize(540,960);$('loading').hidden=true;refresh();render();requestAnimationFrame(tick);}catch(e){$('loading').textContent='3D could not start: '+e.message;$('status').textContent='WebGL is required. Try a current browser with graphics enabled.';console.error(e);}

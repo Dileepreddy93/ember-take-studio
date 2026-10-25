@@ -17,11 +17,17 @@ rendering are available.
 ## Online version
 
 Every push to `main` publishes the studio to GitHub Pages (`.github/workflows/pages.yml`), so anyone
-can try it from a link, on a computer or a phone. Online, everything runs in the browser: scripts and
-the AI writer prompt, characters, worlds and themes, the live preview, and **Export film** (an MP4 made
-in the browser). Generated voices and studio-quality renders need the engine on your own computer
-(`npm run studio`); online, you can upload a voice recording instead. Build the same static site
-locally with `npm run build:pages` (output in `site/`).
+can make a full reel from a link, on a computer or a phone. Online, each visitor's browser is the engine,
+so there is no server to pay for, overload or attack, and nobody sees anyone else's work:
+
+| Online | How |
+|---|---|
+| Voices and lip sync | The same Kokoro voices as the desktop, with word timings and mouth shapes, run on the visitor's GPU (WebGPU) or CPU (WASM) by [HeadTTS](https://github.com/met4citizen/HeadTTS). The first time downloads the voice model; the browser keeps it |
+| Character library | Imports (.glb/.vrm characters, 3D worlds, 360° backgrounds) and saved characters are checked by the same rules and kept privately in the visitor's browser |
+| Export film | An MP4 made in the browser, mastered to −14 LUFS like studio renders |
+
+The desktop engine (`npm run studio`) adds the expressive Chatterbox voices and headless studio renders.
+Build the static site locally with `npm run build:pages` (output in `site/`).
 
 ## Make a reel
 

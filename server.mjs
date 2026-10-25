@@ -98,7 +98,7 @@ http.createServer(async(req,res)=>{
       return send(res,201,meta);
     }
     if(path==='/api/library/preset'&&req.method==='POST'){
-      const b=await body(req,1e6),m=b.member;if(!m||!m.look||!['human','robot','creature','bot'].includes(m.kind))return send(res,400,{error:'Send a built-in character to save.'});
+      const b=await body(req,1e6),m=b.member;if(!m||!m.look||!['human','robot','creature','bot','mascot'].includes(m.kind))return send(res,400,{error:'Send a built-in character to save.'});
       const id=randomUUID();await mkdir(resolve(libraryDir,id));const meta={id,type:'preset',name:String(m.name||'Character').slice(0,16),created:Date.now(),member:{name:m.name,kind:m.kind,voice:m.voice,look:m.look}};
       await writeFile(resolve(libraryDir,id,'meta.json'),JSON.stringify(meta));return send(res,201,meta);
     }

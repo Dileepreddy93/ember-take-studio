@@ -74,4 +74,22 @@ function ambience(p,n,L,R){
       for(let q=0;q<notes;q++){const s0=at+Math.floor(q*.11*RATE),len=Math.floor(.07*RATE);for(let j=0;j<len&&s0+j<n;j++){const t=j/RATE,f=f0*(1+.35*Math.sin(Math.PI*j/len));add(s0+j,Math.sin(2*Math.PI*f*t)*Math.sin(Math.PI*j/len)*.025,pan);}}}
   }
 }
+// Loudness mastering for browser exports (the studio engine uses ffmpeg): measures integrated loudness per
+// ITU-R BS.1770 (K-weighting, 400 ms blocks, absolute and relative gates), gains to the target (−14 LUFS for social
+// platforms), then a smooth peak limiter keeps samples under −3.5 dBFS so true peaks stay under −1 dBTP after AAC encoding. Works on 48 kHz stereo channels in place.
+export function master(channels,target=-14){
+  const n=channels[0].length,kw=x=>{let x1=0,x2=0,y1=0,y2=0,u1=0,u2=0,z1=0,z2=0;const out=new Float32Array(x.length);
+    for(let i=0;i<x.length;i++){const v=x[i],y=1.53512485958697*v-2.69169618940638*x1+1.19839281085285*x2+1.69065929318241*y1-.73248077421585*y2;x2=x1;x1=v;y2=y1;y1=y;
+      const z=y-2*u1+u2+1.99004745483398*z1-.99007225036621*z2;u2=u1;u1=y;z2=z1;z1=z;out[i]=z;}return out;};
+  const k=channels.map(kw),block=Math.round(.4*RATE),hop=Math.round(.1*RATE),powers=[];
+  for(let s=0;s+block<=n;s+=hop){let p=0;for(const c of k)for(let i=s;i<s+block;i++)p+=c[i]*c[i];powers.push(p/block);}
+  const lufs=ps=>-.691+10*Math.log10(ps.reduce((a,b)=>a+b,0)/ps.length),abs=powers.filter(p=>-.691+10*Math.log10(p)>-70);
+  if(!abs.length)return channels;const rel=lufs(abs)-10,gated=abs.filter(p=>-.691+10*Math.log10(p)>rel),gain=10**((target-lufs(gated))/20);
+  const ceiling=10**(-3.5/20),release=Math.exp(-1/(RATE*.08));let env=0;
+  // Peaks are estimated between samples too (cubic midpoint, read before this sample is scaled), like a true-peak meter.
+  const src=channels.map(c=>c.slice()),at=(c,i)=>c[Math.min(n-1,Math.max(0,i))];
+  for(let i=0;i<n;i++){let peak=0;for(const c of src){const mid=(-at(c,i-1)+9*at(c,i)+9*at(c,i+1)-at(c,i+2))/16;peak=Math.max(peak,Math.abs(c[i]),Math.abs(mid));}
+    peak*=gain;env=Math.max(peak,env*release);const g=gain*(env>ceiling?ceiling/env:1);for(const c of channels)c[i]*=g;}
+  return channels;
+}
 export function wav(channels){const n=channels[0].length,buf=new ArrayBuffer(44+n*4),v=new DataView(buf);function str(p,s){[...s].forEach((c,i)=>v.setUint8(p+i,c.charCodeAt(0)))}str(0,'RIFF');v.setUint32(4,36+n*4,true);str(8,'WAVEfmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,2,true);v.setUint32(24,RATE,true);v.setUint32(28,RATE*4,true);v.setUint16(32,4,true);v.setUint16(34,16,true);str(36,'data');v.setUint32(40,n*4,true);for(let i=0;i<n;i++)for(let c=0;c<2;c++)v.setInt16(44+(i*2+c)*2,Math.max(-32768,Math.min(32767,channels[c][i]*32767)),true);return new Blob([buf],{type:'audio/wav'});}

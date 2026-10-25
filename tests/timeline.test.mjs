@@ -168,3 +168,26 @@ test('every theme produces a valid project',()=>{
   for(const id of Object.keys(THEMES)){const p=validateProject(applyTheme(base,id));assert.equal(p.set,THEMES[id].set);}
   assert.match(castLine(base.cast[1]),/^# cast: Mica = kind=bot voice=af_heart/);
 });
+
+test('browser voices lay out a project like the desktop pipeline (fake synthesiser)',async()=>{
+  globalThis.btoa??=s=>Buffer.from(s,'binary').toString('base64');
+  const {voiceProject}=await import('../browser-voice.js'),RATE=24000;
+  // Each line: 0.2 s of silence, then 1 s of tone with two words and a closed-open-closed mouth.
+  const synth=async(text,voice,speed)=>{const n=Math.round(1.4*RATE),pcm=new Float32Array(n);for(let i=Math.round(.2*RATE);i<Math.round(1.2*RATE);i++)pcm[i]=.5*Math.sin(i/9);
+    return [{type:'audio',data:{audio:{getChannelData:()=>pcm},words:['Hello','world.'],wtimes:[200,700],wdurations:[450,450],visemes:['PP','aa','sil'],vtimes:[200,300,1150],vdurations:[100,800,50]}}];};
+  const p=validateProject(clone(DEFAULT_PROJECT)),seen=[];
+  const out=await voiceProject(p,'flow',(f,msg)=>seen.push(f),synth);
+  assert.match(out.voiceData,/^data:audio\/wav;base64,/);assert.equal(out.voiceEngine,'kokoro');
+  const c0=out.cues[0];assert.equal(c0.start,1.4);// intro lead, as in pipeline/voice.py
+  assert.ok(Math.abs((c0.end-c0.start)-(1.12+.1))<.02,`take trimmed to ~1.12 s, got ${c0.end-c0.start}`);
+  assert.deepEqual(c0.visemes.map(v=>v[1]),['A','D','X']);assert.ok(c0.visemes[0][0]<.1);
+  assert.deepEqual(c0.words.map(w=>w[2]),['Hello','world.']);
+  for(let i=1;i<out.cues.length;i++)assert.ok(Math.abs(out.cues[i].start-(out.cues[i-1].end+(out.cues[i-1].pause??.45)))<.002);
+  assert.ok(out.duration>=out.cues.at(-1).end+1.6);assert.equal(seen.at(-1),1);validateProject(out);
+});
+test('browser export mastering reaches the loudness target with peak headroom',async()=>{
+  const {master}=await import('../audio.js'),n=48000*6,ch=[new Float32Array(n),new Float32Array(n)];
+  for(let i=0;i<n;i++){const v=.03*Math.sin(2*Math.PI*440*i/48000)*(1+.5*Math.sin(i/20000));ch[0][i]=v;ch[1][i]=v*.8;}
+  master(ch);const peak=ch.reduce((m,c)=>c.reduce((a,v)=>Math.max(a,Math.abs(v)),m),0);assert.ok(peak<=10**(-3.5/20)+1e-6,`peak ${peak}`);
+  const rms=a=>Math.sqrt(a.reduce((s,v)=>s+v*v,0)/a.length),before=rms(ch[0]);master(ch);assert.ok(Math.abs(20*Math.log10(rms(ch[0])/before))<.6,'mastering again changes little');
+});

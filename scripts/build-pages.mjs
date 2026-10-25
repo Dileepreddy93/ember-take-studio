@@ -1,5 +1,6 @@
-// Static build of the studio for GitHub Pages (or any static host): editing, live preview and in-browser export.
-// Voices and studio renders need the local engine (`npm run studio`), so the page runs in browser-only mode.
+// Static build of the studio for GitHub Pages (or any static host). With no server, each visitor's browser is the
+// engine: Kokoro voices and lip sync (browser-voice.js), the character library (local-library.js), and MP4 export
+// mastered to −14 LUFS. Expressive Chatterbox voices and headless studio renders stay on the desktop engine.
 //   node scripts/build-pages.mjs [--out=site]
 import {build} from 'esbuild';
 import {cp,mkdir,rm,writeFile,readFile} from 'node:fs/promises';
@@ -15,5 +16,7 @@ await cp(resolve(root,'dist/style.css'),resolve(out,'style.css'));
 await writeFile(resolve(out,'index.html'),(await readFile(resolve(root,'dist/index.html'),'utf8')).replace('<head>','<head><script>window.EMBER_STATIC=true</script>'));
 // glTF decoders for imported worlds and characters (Draco, KTX2/Basis), served next to the page.
 for(const d of ['draco','basis'])await cp(resolve(root,'node_modules/three/examples/jsm/libs',d),resolve(out,'vendor',d),{recursive:true});
+// The in-browser voice engine (HeadTTS: Kokoro voices with word timings and visemes), loaded at runtime by browser-voice.js.
+await cp(resolve(root,'vendor/headtts'),resolve(out,'vendor/headtts'),{recursive:true});
 await writeFile(resolve(out,'.nojekyll'),'');
 console.log('Static studio built in '+out);
