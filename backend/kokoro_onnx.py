@@ -14,7 +14,6 @@ import sys
 
 import numpy as np
 import onnxruntime as ort
-from misaki import en, espeak
 
 MODEL_DIR = os.environ.get('KOKORO_ONNX_DIR', '/opt/kokoro')
 STYLE_DIM = 256
@@ -34,6 +33,8 @@ def _model():
 
 
 def _phonemizer(lang):
+    # Load spaCy/G2P inside the warm-up request, keeping Lambda HTTP startup under its init deadline.
+    from misaki import en, espeak
     # As KPipeline: American ('a') or British ('b') G2P, espeak for words outside the lexicon.
     if lang not in _g2p:
         try:

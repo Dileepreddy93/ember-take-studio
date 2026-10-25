@@ -69,7 +69,8 @@ deploy)
   aws lambda wait function-active-v2 --function-name "$NAME"
   aws logs create-log-group --log-group-name "/aws/lambda/$NAME" 2>/dev/null || true
   aws logs put-retention-policy --log-group-name "/aws/lambda/$NAME" --retention-in-days 3
-  cors="{\"AllowOrigins\":$ORIGINS,\"AllowMethods\":[\"GET\",\"POST\"],\"AllowHeaders\":[\"content-type\"],\"MaxAge\":86400}"
+  # FastAPI owns CORS, including preflight. Lambda URL CORS would duplicate response headers and break browsers.
+  cors='{}'
   if [ -z "$(url)" ]; then
     aws lambda create-function-url-config --function-name "$NAME" --auth-type NONE --invoke-mode RESPONSE_STREAM --cors "$cors" >/dev/null
     aws lambda add-permission --function-name "$NAME" --statement-id public-url --action lambda:InvokeFunctionUrl --principal '*' --function-url-auth-type NONE >/dev/null
