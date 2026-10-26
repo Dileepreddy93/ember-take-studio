@@ -203,3 +203,7 @@ The opening showcase contains small previews made from this studio's own renders
 The editor workflow is **Script → Cast → World → Voices → Export**. The sample-reel strip collapses as you start editing to give the preview more room. On desktop, the story and settings panels scroll independently; on mobile, the compact story list appears before the settings. Choosing a dialogue line opens its Scene settings.
 
 Generated voices are tied to the script: changing dialogue, speaker, timing, emotion or modulation clears the old generated track so it cannot accidentally play or export the previous words. Visual changes preserve speech. Undo restores the earlier version, including its audio. Browser exports always use the story camera, even when opened from the Cast tab.
+
+## Responsive workspace
+
+The charcoal/lavender workspace keeps the story, preview, and controls together on desktop. At 800 px and below, use the bottom Preview / Story / Customize navigation; project open/download actions are in Story. The sample-film library starts collapsed on desktop. See [WORKSPACE_REVIEW.md](WORKSPACE_REVIEW.md) for architecture findings, subscription-readiness gaps, and verification evidence.

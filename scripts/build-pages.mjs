@@ -14,6 +14,7 @@ const arg=process.argv.find(a=>a.startsWith('--out='));const out=resolve(root,ar
 await rm(out,{recursive:true,force:true});await mkdir(out,{recursive:true});
 await build({entryPoints:[resolve(root,'app.js')],bundle:true,format:'esm',minify:true,outfile:resolve(out,'app.bundle.js'),logLevel:'error'});
 await cp(resolve(root,'dist/style.css'),resolve(out,'style.css'));
+await cp(resolve(root,'dist/workspace.css'),resolve(out,'workspace.css'));
 // Marks the page as engine-less so it starts in browser-only mode without probing for a server.
 await writeFile(resolve(out,'index.html'),(await readFile(resolve(root,'dist/index.html'),'utf8')).replace('<head>',`<head><script>window.EMBER_STATIC=true;window.EMBER_API=${JSON.stringify(API)}</script>`));
 // glTF decoders for imported worlds and characters (Draco, KTX2/Basis), served next to the page.

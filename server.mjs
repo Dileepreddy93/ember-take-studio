@@ -1,3 +1,4 @@
+import {jobProject,byteRange,allowLocalRequest} from './server-guards.js';
 // Ember Take studio server: serves the studio UI and runs the local voice and render pipelines.
 //   node server.mjs            then open http://localhost:8765
 // Jobs run one at a time (they all want the CPU) and report progress for the UI to poll.
@@ -32,6 +33,8 @@ function engines(){
 
 const jobs=new Map();let queue=Promise.resolve();
 function startJob(type,run){
+  for(const [id,old] of jobs)if(['done','error'].includes(old.status)&&Date.now()-old.created>3600000)jobs.delete(id);
+  if([...jobs.values()].filter(j=>['queued','running'].includes(j.status)).length>=4)throw Object.assign(Error('The studio is busy. Wait for a job to finish.'),{status:429});
   const job={id:randomUUID().slice(0,8),type,status:'queued',progress:0,message:'Waiting for the studio…',log:[],result:null,created:Date.now()};
   jobs.set(job.id,job);queue=queue.then(()=>{job.status='running';return run(job);}).then(r=>{job.status='done';job.progress=1;job.result=r;}).catch(e=>{job.status='error';job.message=e.message;});
   return job;
@@ -41,6 +44,7 @@ function runProcess(job,cmd,args,onLine){
     const p=spawn(cmd,args,{cwd:root});let tail='';
     const feed=chunk=>{tail+=chunk;const parts=tail.split(/[\r\n]+/);tail=parts.pop();for(const l of parts){if(!l.trim())continue;job.log.push(l);if(job.log.length>200)job.log.shift();onLine(l);}};
     p.stdout.on('data',feed);p.stderr.on('data',feed);
+    p.on('error',no);
     p.on('close',code=>code===0?ok():no(Error(job.log.filter(l=>!/warn/i.test(l)).slice(-3).join(' ')||`${cmd} exited with ${code}`)));
   });
 }
@@ -73,18 +77,26 @@ async function listLibrary(){
   const out=[];for(const id of await readdir(libraryDir).catch(()=>[])){try{const meta=JSON.parse(await readFile(resolve(libraryDir,id,'meta.json'),'utf8'));out.push(meta);}catch{}}
   return out.sort((a,b)=>b.created-a.created);
 }
-async function body(req,limit=60e6){const chunks=[];let size=0;for await(const c of req){size+=c.length;if(size>limit)throw Error('Request too large.');chunks.push(c);}return JSON.parse(Buffer.concat(chunks).toString('utf8'));}
+async function body(req,limit=60e6){const chunks=[];let size=0;for await(const c of req){size+=c.length;if(size>limit)throw Object.assign(Error('Request too large.'),{status:413});chunks.push(c);}try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw Object.assign(Error('Send valid JSON.'),{status:400});}}
 const send=(res,code,data)=>{res.writeHead(code,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(data));};
 async function serveFile(req,res,file){
   const info=await stat(file).catch(()=>null);if(!info?.isFile())return send(res,404,{error:'Not found'});
-  const type=TYPES[extname(file)]||'application/octet-stream',range=req.headers.range?.match(/bytes=(\d*)-(\d*)/);
-  if(range){const start=Number(range[1]||0),end=range[2]?Number(range[2]):info.size-1;res.writeHead(206,{'content-type':type,'content-range':`bytes ${start}-${end}/${info.size}`,'accept-ranges':'bytes','content-length':end-start+1});return createReadStream(file,{start,end}).pipe(res);}
-  res.writeHead(200,{'content-type':type,'content-length':info.size,'accept-ranges':'bytes','cache-control':'no-cache'});createReadStream(file).pipe(res);
+  const type=TYPES[extname(file)]||'application/octet-stream';
+  if(req.headers.range){
+    const range=byteRange(req.headers.range,info.size);
+    if(!range){res.writeHead(416,{'content-range':`bytes */${info.size}`});return res.end();}
+    const {start,end}=range;
+    res.writeHead(206,{'content-type':type,'content-range':`bytes ${start}-${end}/${info.size}`,'accept-ranges':'bytes','content-length':end-start+1});
+    return createReadStream(file,{start,end}).on('error',()=>res.destroy()).pipe(res);
+  }
+  res.writeHead(200,{'content-type':type,'content-length':info.size,'accept-ranges':'bytes','cache-control':'no-cache'});createReadStream(file).on('error',()=>res.destroy()).pipe(res);
 }
 const inside=(base,file)=>{const r=relative(base,file);return r&&!r.startsWith('..')&&!r.startsWith('/');};
 
 http.createServer(async(req,res)=>{
   try{
+    res.setHeader('X-Content-Type-Options','nosniff');
+    if(!allowLocalRequest(req.headers,PORT))return send(res,403,{error:'Open the studio from its localhost address.'});
     const url=new URL(req.url,'http://localhost'),path=decodeURIComponent(url.pathname);
     if(path==='/api/status')return send(res,200,{engines:engines(),voices:VOICES,importRules:IMPORT_RULES});
     if(path==='/api/library'&&req.method==='GET')return send(res,200,await listLibrary());
@@ -104,8 +116,8 @@ http.createServer(async(req,res)=>{
     }
     if(path.startsWith('/api/library/')&&req.method==='DELETE'){const id=path.split('/').pop();if(!/^[a-z0-9-]{6,40}$/.test(id))return send(res,400,{error:'Bad id'});await rm(resolve(libraryDir,id),{recursive:true,force:true});return send(res,200,{deleted:id});}
     if(/^\/library\/[a-z0-9-]{6,40}\/model$/.test(path)){const id=path.split('/')[2];const meta=JSON.parse(await readFile(resolve(libraryDir,id,'meta.json'),'utf8').catch(()=>'{}'));if(!meta.file)return send(res,404,{error:'Not in the library'});return serveFile(req,res,resolve(libraryDir,id,meta.file));}
-    if(path==='/api/voice'&&req.method==='POST'){const b=await body(req);const job=await voiceJob(b.project,b.layout==='keep'?'keep':'flow');return send(res,202,{id:job.id});}
-    if(path==='/api/render'&&req.method==='POST'){const b=await body(req);const width=[540,720,1080].includes(Number(b.width))?Number(b.width):1080;const job=await renderJob(b.project,width);return send(res,202,{id:job.id});}
+    if(path==='/api/voice'&&req.method==='POST'){const b=await body(req);const job=await voiceJob(jobProject(b?.project),b?.layout==='keep'?'keep':'flow');return send(res,202,{id:job.id});}
+    if(path==='/api/render'&&req.method==='POST'){const b=await body(req);const width=[540,720,1080].includes(Number(b?.width))?Number(b?.width):1080;const job=await renderJob(jobProject(b?.project),width);return send(res,202,{id:job.id});}
     if(path.startsWith('/api/jobs/')){const job=jobs.get(path.split('/').pop());if(!job)return send(res,404,{error:'Unknown job'});const {log,...rest}=job;return send(res,200,{...rest,log:log.slice(-6)});}
     if(path==='/api/renders'){
       const list=[];for(const name of await readdir(rendersDir).catch(()=>[])){const f=resolve(rendersDir,name,'film.mp4');const s=await stat(f).catch(()=>null);if(!s)continue;let title=name;const proj=existsSync(resolve(rendersDir,name,'project.ember.json'));if(proj){try{title=JSON.parse(await readFile(resolve(rendersDir,name,'project.ember.json'),'utf8')).title||name;}catch{}}list.push({name,title,url:`/renders/${name}/film.mp4`,project:proj?`/renders/${name}/project.ember.json`:null,size:s.size,created:s.mtimeMs});}
