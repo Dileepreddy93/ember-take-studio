@@ -13,13 +13,13 @@ export const WORLD_PARTICLES=['motes','leaves','fireflies','dust','pollen','snow
 // Desk room: what the window looks out on, what the cast stands on, and what decorates the set.
 export const VIEWS=['city','mountains','ocean','forest','space','none'];export const SURFACES=['keyboard','laptop','table'];export const DESK_PROPS=['lamp','mug','plant','books','clock'];
 // World settings: density/wind/effects for nature sets; the desk room's view, lights, props and sky; library ids and placement for custom worlds.
-export const WORLD_DEFAULTS={foliage:1,wind:1,particles:null,sign:true,campfire:true,view:'city',surface:'keyboard',lights:true,lightColor:'#ffc070',monitor:true,props:['lamp','mug'],sky:null,glow:null,backdrop:null,scene:null,scale:2,turn:0,panoHeight:4,offsetX:0,offsetY:0,offsetZ:0};
+export const WORLD_DEFAULTS={foliage:1,wind:1,particles:null,sign:true,campfire:true,view:'city',surface:'keyboard',lights:true,lightColor:'#ffc070',monitor:true,props:['lamp','mug'],sky:null,glow:null,backdrop:null,scene:null,scale:2,turn:0,panoHeight:4,offsetX:0,offsetY:0,offsetZ:0,neon:'',neonColor:'#ff7a59'};
 const ACTION_FRAMING={jump:'fs',hop:'fs',enter:'two',exit:'two',cheer:'ms',handsup:'ms',wave:'ms',raise:'ms',shrug:'ms',clap:'ms',crossarms:'ms','point-screen':'ms','point-other':'two',lean:'ms',type:'ms',press:'ms',explain:'single',thumbsup:'single',facepalm:'single',think:'single'};
 export const MOVES=['auto','static','push','pull','orbit','rise','handheld'];
 export const TONES=['alert','calm','success','info'];
 // What the monitor shows: a title card, or an app whose lines type themselves out (the screen tells the joke).
-export const SCREEN_KINDS=['card','terminal','chat','code','inbox'];
-export const SCREEN_LINES=8;
+export const SCREEN_KINDS=['card','terminal','chat','code','inbox','browser','grid'];
+export const SCREEN_LINES=12;
 export const CAPTION_STYLES=['bold','box'];
 export const CHARACTER_STYLES=['smooth','lowpoly'];
 export const FILM_LOOK_IDS=['studio','cinematic','golden','pastel','neon','vintage','noir','documentary','dream','vhs'];
@@ -103,13 +103,14 @@ export function partnerOf(p,i){
 }
 // Director: shot/reverse-shot coverage on one side of the line, close-ups on emotional peaks, gesture-aware
 // sizes, a held shot instead of a jump cut, two-shots on silences, reaction shots in the dynamic style.
+const PERFORMED_ROW=/^(> |\[[xX ]\] |\(.+\)$|!! |\*\* |~ )/;
 export function planShots(p){
   if(plans.has(p))return plans.get(p);
   const style=p.cameraStyle||'cinematic',segs=[],turns={},n=p.cues.length,group=p.cast.length>=3;let prev=null;
   const widen=(shot,need)=>need&&SHOT_SIZE[need]>SHOT_SIZE[shot]?need:shot;
   const push=seg=>{const last=segs.at(-1);
     if(last&&last.shot===seg.shot&&last.subject===seg.subject&&seg.shot!=='custom'&&seg.shot!=='screen')return;     // hold: no jump cut
-    if(last&&seg.start-last.start<(last.reaction?.45:.8)&&segs.length>1){segs[segs.length-1]={...seg,start:last.start};return;}           // too short: replace
+    if(last&&seg.start-last.start<(last.reaction?.45:.8)&&segs.length>1){if(seg.reaction&&!last.reaction)return;segs[segs.length-1]={...seg,start:last.start};return;}           // too short: replace (a reaction never takes a short line's shot)
     segs.push(seg);};
   p.cues.forEach((c,i)=>{
     const other=partnerOf(p,i),dur=c.end-c.start,gap=prev?c.start-prev.end:0;
@@ -125,7 +126,7 @@ export function planShots(p){
       subject=c.speaker;const changed=prev&&c.speaker!==prev.speaker,last=segs.at(-1);
       if(i===0)shot=group?'wide':'two';
       else if(c.emotion==='angry'||c.emotion==='surprised')shot=style==='dynamic'&&c.emotion==='surprised'?'ecu':'cu';
-      else if(changed){turns[c.speaker]=(turns[c.speaker]||0)+1;shot=style==='calm'?'single':style==='dynamic'?(turns[c.speaker]%2?'ots':'cu'):(turns[c.speaker]%2?'ots':'single');}
+      else if(changed){turns[c.speaker]=(turns[c.speaker]||0)+1;shot=style==='calm'?'single':style==='dynamic'?(turns[c.speaker]%2?'ots':'cu'):(turns[c.speaker]%2?'ots':c.emotion==='neutral'?'single':'cu');}
       else if(style==='calm')shot=last?.subject===subject?last.shot:'single';
       else shot=last?.subject===subject&&last.shot==='single'?'cu':'single';
       if(i===n-1&&i>0&&['happy','idea'].includes(c.emotion)&&style!=='calm')shot='cu';
@@ -133,7 +134,9 @@ export function planShots(p){
       if(shot==='ots'&&SHOT_SIZE[ACTION_FRAMING[c.action]]>SHOT_SIZE.single)shot='ms';
     }
     const cut=i===0?0:Math.max(prev.end,c.start-.12),seg={start:cut,shot,subject,other,cam:c.shot==='custom'?c.cam:undefined,cue:c.id};
-    if(c.screen&&c.shot==='auto'&&i>0&&dur>1.5){push({start:cut,shot:'screen',subject,other,cue:c.id});push({...seg,start:c.start+Math.min(1.1,dur*.45)});}
+    // A performed screen (typing, clicks, popups) holds the camera while it plays out; a title card is a quick insert.
+    const performed=c.screen&&c.screen.kind!=='card'&&(c.screen.lines||[]).some(l=>PERFORMED_ROW.test(l));
+    if(c.screen&&c.shot==='auto'&&(performed||(i>0&&dur>1.5))){const hold=performed?Math.max(1.2,dur*.7):Math.min(1.1,dur*.45);push({start:cut,shot:'screen',subject,other,cue:c.id});if(hold<dur-.5)push({...seg,start:c.start+hold});}
     else push(seg);
     // A reaction shot of the listener in the middle of long lines (cinematic from 3.4 s, dynamic from 2.6 s), so a
     // shot rarely runs past about 2.5 s, as in fast social shorts.
@@ -195,16 +198,56 @@ export function actionAt(p,t,speaker){
 export function beatAt(cue,t){
   if(!cue)return 0;const local=t-cue.start;let b=0;
   const words=cue.words?.length?cue.words:cue.text.split(/\s+/).map((w,i,a)=>[i*(cue.end-cue.start)/a.length,0,w]);
-  for(const [s,,w] of words){const d=local-s;if(d<0||d>.6)continue;const stress=/[!?]$|^[A-Z]{3,}/.test(w)?1:w.replace(/\W/g,'').length>5?.75:.4;b=Math.max(b,stress*Math.exp(-d*6)*Math.min(1,d*25));}
+  // Voiced lines carry each word's measured emphasis (loudness and pitch against the line) as a 4th value.
+  for(const [s,,w,emph] of words){const d=local-s;if(d<0||d>.6)continue;const stress=Number.isFinite(emph)?.25+.75*emph:/[!?]$|^[A-Z]{3,}/.test(w)?1:w.replace(/\W/g,'').length>5?.75:.4;b=Math.max(b,stress*Math.exp(-d*6)*Math.min(1,d*25));}
   return b;
 }
-// Each character keeps the feeling of their own last line; transitions blend over 0.35 s.
+// How a listener's face answers the speaker's feeling (an angry line worries them, a surprise surprises them).
+export const REACTIONS={neutral:'neutral',happy:'happy',sad:'worried',angry:'worried',surprised:'surprised',worried:'worried',curious:'curious',idea:'curious'};
+const FACE_KEYS=['brow','raise','eye','smile','tilt','down','open'];
+// Each character keeps the feeling of their own last line; transitions blend over 0.35 s. While someone else
+// speaks, the listener's face reacts to that line after a short take (about a third of a second), and the
+// reaction fades once that line is over.
 export function faceAt(p,t,speaker){
-  let cur=null,prev=null;
-  for(const c of p.cues){if(c.speaker!==speaker)continue;if(c.start-.15<=t){prev=cur;cur=c;}else break;}
+  let cur=null,prev=null,heard=null;
+  for(const c of p.cues){if(c.start-.15>t)break;if(c.speaker===speaker){prev=cur;cur=c;heard=null;}else heard=c;}
   const a=FACES[prev?.emotion||'neutral'],b=FACES[cur?.emotion||'neutral'],k=cur?smooth((t-cur.start+.15)/.35):1,out={};
-  for(const key of ['brow','raise','eye','smile','tilt','down','open'])out[key]=lerp(a[key],b[key],k);
-  out.asym=lerp(a.asym||0,b.asym||0,k);out.emotion=cur?.emotion||'neutral';return out;
+  for(const key of FACE_KEYS)out[key]=lerp(a[key],b[key],k);
+  out.asym=lerp(a.asym||0,b.asym||0,k);out.emotion=cur?.emotion||'neutral';
+  if(heard){
+    const take=heard.emotion==='surprised'||heard.emotion==='angry'?.2:.38,r=FACES[REACTIONS[heard.emotion]||'neutral'],
+      amt=(heard.emotion==='neutral'?.25:.6)*smooth((t-heard.start-take)/.4)*(1-.55*smooth((t-heard.end)/1.4));
+    for(const key of FACE_KEYS)out[key]=lerp(out[key],r[key],amt);out.asym=lerp(out.asym,r.asym||0,amt);
+    out.reaction=amt;if(amt>.35&&(heard.emotion==='surprised'||heard.emotion==='happy'))out.emotion=heard.emotion;
+  }
+  return out;
+}
+const rand=(n,salt)=>{const h=Math.sin(n*127.1+salt*311.7)*43758.5453;return h-Math.floor(h);};
+const blinks=new WeakMap();
+// Blink openness (1 open … 0.1 shut) at t. People blink every 2–6 s at uneven intervals, sometimes twice, and at
+// thought boundaries: just before speaking, and as they take in someone else's line.
+export function blinkAt(p,t,id,seed=0){
+  let per=blinks.get(p);if(!per)blinks.set(p,per={});
+  if(!per[id]){
+    const cued=p.cues.map(c=>c.speaker===id?c.start-.12:c.start+.3+rand(c.start,seed)*.25),ev=[...cued];
+    for(let x=.4+rand(seed,1)*1.5,i=0;x<p.duration+1;i++){if(cued.every(c=>Math.abs(c-x)>.6)){ev.push(x);if(rand(seed+i,3)<.15)ev.push(x+.32);}x+=2.2+rand(seed+i,2)*3.6;}
+    per[id]=ev.sort((x,y)=>x-y);
+  }
+  let open=1;for(const e of per[id]){const d=t-e;if(d<-.07)break;if(d>.17)continue;open=Math.min(open,d<0?.1+.9*(-d/.07):d<.04?.1:.1+.9*((d-.04)/.13));}
+  return open;
+}
+// Where the eyes and head wander, as yaw/pitch offsets in radians: a speaker thinking aloud (or starting a long
+// line) looks away first, then back to their partner to finish; everyone makes small, irregular eye movements.
+export function glanceAt(p,t,id,seed=0){
+  const cue=p.cues.find(c=>c.speaker===id&&t>=c.start-.2&&t<c.end);let yaw=0,pitch=0;
+  if(cue){
+    const dur=cue.end-cue.start,e=cue.emotion,away=['sad','worried','curious','idea'].includes(e)||dur>2.4||/^\.\.\./.test(cue.text);
+    if(away){const i=p.cues.indexOf(cue),side=rand(i,seed)<.5?-1:1,k=smooth((t-cue.start+.2)/.3)*(1-smooth((t-cue.start-dur*.42)/.35));
+      yaw=side*.32*k;pitch=(e==='sad'||e==='worried'?.16:e==='idea'||e==='curious'?-.12:.05)*k;}
+  }
+  const n=Math.floor(t/.9+rand(seed,4)),j=smooth((t/.9+rand(seed,4)-n)/.08);
+  yaw+=lerp(rand(n-1,seed+5)-.5,rand(n,seed+5)-.5,j)*.07;pitch+=lerp(rand(n-1,seed+6)-.5,rand(n,seed+6)-.5,j)*.035;
+  return {yaw,pitch};
 }
 const DEFAULT_SCREEN={kicker:'',title:'',sub:'',tone:'calm',progress:false};
 export function screenAt(p,t){
@@ -212,7 +255,14 @@ export function screenAt(p,t){
   const list=p.cues.filter(c=>c.screen);if(!list.length)return {screen:{...DEFAULT_SCREEN,kind:'idle',title:p.title},since:-9,progress:null,index:0};
   let i=0;while(i+1<list.length&&list[i+1].start<=t)i++;
   const c=list[i],since=i===0&&t<c.start?-9:c.start,next=list[i+1]?.start??p.duration;
-  return {screen:c.screen,since,progress:c.screen.progress?smooth((t-c.start)/Math.max(.5,next-c.start-.4)):null,index:i};
+  return {screen:c.screen,since,start:c.start,span:screenSpan(p,c),progress:c.screen.progress?smooth((t-c.start)/Math.max(.5,next-c.start-.4)):null,index:i};
+}
+// How long a screen's actions take: its own line and pause, plus any following lines the camera holds on the screen
+// (camera tag "screen"), never past the next screen. Picture and sound both use this.
+export function screenSpan(p,cue){
+  const i=p.cues.indexOf(cue),next=p.cues.slice(i+1).find(c=>c.screen)?.start??p.duration;let end=cue.end+(cue.pause??.45);
+  for(const c of p.cues.slice(i+1)){if(c.screen||c.shot!=='screen')break;end=c.end+(c.pause??.45)*.5;}
+  return Math.max(.8,Math.min(next,end)-cue.start);
 }
 export function poseAt(p,t){
   t=clamp(t,0,p.duration);const cue=cueAt(p,t);
@@ -234,6 +284,22 @@ export function mouthAt(p,t,speaker){
   const cur=VISEMES[i<0?'X':v[i][1]],prev=VISEMES[i<1?'X':v[i-1][1]],k=i<0?1:smooth((local-v[i][0])/.06),out={};
   for(const key of ['open','wide','round','tongue'])out[key]=prev[key]+(cur[key]-prev[key])*k;
   out.teeth=k>.5?cur.teeth:prev.teeth;return out;
+}
+// Sound and delivery tags written inside a line ("[sigh] Fine.", "That's it [laugh]") steer the expressive voice;
+// captions, lip sync and the fast voice use the line without them.
+export const VOICE_TAGS=['laugh','chuckle','sigh','gasp','groan','sniff','cough','clear throat','whispering','sarcastic','crying','dramatic','fear','angry','happy','surprised','shush'];
+export const spoken=text=>text.replace(/\s*\[[a-z ]{2,14}\]\s*/gi,' ').replace(/\s+/g,' ').replace(/\s+([.,!?;:])/g,'$1').trim();
+// Turn-taking for lines without an authored pause (0.45 is the default): how long the next speaker takes to answer,
+// by the feeling they answer with. Same table as TURN_GAP in pipeline/voice.py.
+export const TURN_GAP={surprised:.14,angry:.16,idea:.24,happy:.3,curious:.3,neutral:.34,worried:.42,sad:.6};
+export const CARD_TIME=1.8;
+export function turnGap(cue,next){
+  if(next?.card)return Math.max(.3,cue.pause??.45)+CARD_TIME;// a time card ("2 HOURS LATER") gets its own moment of black
+  const pause=cue.pause??.45;if(Math.abs(pause-.45)>.01||!next)return pause;
+  let gap=next.speaker===cue.speaker?.3:TURN_GAP[next.emotion]??.34;
+  if(/^\s*(\[[a-z ]+\]\s*)*(\.\.\.|…)/i.test(next.text))gap+=.35;
+  if(/\?$/.test(cue.text.replace(/[\s"']+$/,''))&&next.speaker!==cue.speaker)gap-=.04;
+  return Math.round(Math.max(.08,gap)*1000)/1000;
 }
 // Index of the spoken word at t within the current line (for highlighted captions), or -1.
 export function wordAt(cue,t){if(!cue?.words?.length)return -1;const local=t-cue.start;let i=-1;cue.words.forEach((w,j)=>{if(w[0]<=local+.03)i=j;});return i;}
@@ -276,7 +342,7 @@ export function parseWorldLine(spec,n=0){
     const k=tok.slice(0,i),v=tok.slice(i+1),key=Object.keys(WORLD_DEFAULTS).find(x=>x.toLowerCase()===k.toLowerCase());
     if(!key)throw Error(`Line ${n}: unknown world setting "${k}". Settings: ${Object.keys(WORLD_DEFAULTS).join(', ')}.`);
     const def=WORLD_DEFAULTS[key];
-    w[key]=['particles','props','sky'].includes(key)?(/^none$/i.test(v)?[]:v.split(',').map(x=>x.trim().toLowerCase()).filter(Boolean)):typeof def==='boolean'?onOff(v):typeof def==='number'?Number(v):v.toLowerCase();
+    w[key]=['particles','props','sky'].includes(key)?(/^none$/i.test(v)?[]:v.split(',').map(x=>x.trim().toLowerCase()).filter(Boolean)):typeof def==='boolean'?onOff(v):typeof def==='number'?Number(v):key==='neon'?v.replace(/_/g,' '):v.toLowerCase();
   }
   return w;
 }
@@ -285,13 +351,14 @@ export function parseScript(text,p){
   lines.forEach((raw,n)=>{const m=raw.trim().match(/^#\s*cast\s*:\s*(.+)$/i);if(m)castLines.push(parseCastLine(m[1],p,n+1));});
   if(castLines.length>MAX_CAST)throw Error(`A film has at most ${MAX_CAST} characters.`);
   if(castLines.length){const ids=new Set();for(const c of castLines){if(ids.has(c.id))throw Error(`Two cast lines are both called "${c.name}".`);ids.add(c.id);}meta.cast=castLines;}
-  const names=castLookup(castLines.length?{cast:castLines}:p),cues=[];let screen=null;
+  const names=castLookup(castLines.length?{cast:castLines}:p),cues=[];let screen=null,card=null;
   lines.forEach((raw,n)=>{
     const line=raw.trim();if(!line)return;
     let m;
     if((m=line.match(/^#\s*(title|handle|set|time|camera|theme|look|style|modulation)\s*:\s*(.+)$/i))){const k=m[1].toLowerCase();meta[k]=['title','handle'].includes(k)?m[2].trim():m[2].trim().toLowerCase();return;}
     if((m=line.match(/^#\s*world\s*:\s*(.+)$/i))){meta.world={...meta.world,...parseWorldLine(m[1],n+1)};return;}
     if(line.startsWith('#'))return;
+    if((m=line.match(/^>>\s*card\s*:\s*(.+)$/i))){card=m[1].trim().slice(0,40);return;}
     if((m=line.match(/^>>\s*beat\s*:\s*([\d.]+)$/i))){const pause=Number(m[1]);if(!cues.length||!Number.isFinite(pause)||pause<.1||pause>3)throw Error(`Line ${n+1}: put BEAT: 0.1 to 3 seconds after dialogue.`);cues.at(-1).pause=pause;return;}
     if((m=line.match(/^>>\s*screen\b([^:]*):\s*(.*)$/i))){
       // Words before the colon, any order: a tone, a screen type and +progress.
@@ -317,7 +384,7 @@ export function parseScript(text,p){
       else throw Error(`Line ${n+1}: unknown tag "${tag}".`);
     }
     if(cue.cam&&cue.shot!=='custom')cue.shot='custom';
-    if(screen){cue.screen=screen;screen=null;}
+    if(screen){cue.screen=screen;screen=null;}if(card){cue.card=card;card=null;}
     cues.push(cue);
   });
   if(!cues.length)throw Error('The script has no dialogue lines.');
@@ -334,14 +401,15 @@ export function castLine(c){
   return `# cast: ${c.name} = kind=${c.kind} voice=${c.voice}${c.asset?` asset=${c.asset.id}${c.asset.flip?' flip':''}`:''}${look.length?' '+look.join(' '):''}`;
 }
 export function worldLine(w){
-  const v=(k,x)=>Array.isArray(x)?(x.length?x.join(','):'none'):typeof x==='boolean'?(x?'on':'off'):x;
-  const keys=['view','surface','lights','lightColor','monitor','props','particles','sky','glow','foliage','wind','campfire','sign'];
+  const v=(k,x)=>Array.isArray(x)?(x.length?x.join(','):'none'):typeof x==='boolean'?(x?'on':'off'):k==='neon'?x.replace(/ /g,'_'):x;
+  const keys=['view','surface','lights','lightColor','monitor','props','particles','sky','glow','foliage','wind','campfire','sign','neon','neonColor'];
   return '# world: '+keys.filter(k=>w[k]!=null&&JSON.stringify(w[k])!==JSON.stringify(WORLD_DEFAULTS[k])).map(k=>`${k}=${v(k,w[k])}`).join(' ');
 }
 export function toScript(p){
   const wl=worldLine(p.world),out=[`# title: ${p.title}`,`# handle: ${p.handle}`,`# set: ${p.set}`,...(p.set!=='custom'?[`# time: ${p.timeOfDay}`]:[]),`# camera: ${p.cameraStyle}`,`# modulation: ${p.voiceModulation??1}`,`# look: ${p.filmLook}`,`# style: ${p.characterStyle}`,...(wl.length>9?[wl]:[]),...p.cast.map(castLine),''],name=id=>p.cast.find(c=>c.id===id)?.name||id;
   for(const c of p.cues){
     if(c.screen){const s=c.screen,app=s.kind&&s.kind!=='card';out.push(`>> SCREEN ${app?s.kind+' ':''}${s.tone}${s.progress?' +progress':''}: ${app?[s.title,...s.lines].join(' | '):`${s.kicker} | ${s.title} | ${s.sub}`}`);}
+    if(c.card)out.push(`>> CARD: ${c.card}`);
     const cam=c.shot==='custom'?[`cam=${c.cam.yaw}/${c.cam.pitch}/${c.cam.dist}/${c.cam.lens}`,c.cam.move!=='auto'&&`move=${c.cam.move}`]:[c.shot!=='auto'&&(c.subject&&c.subject!==c.speaker?`${c.shot}:${name(c.subject).toLowerCase()}`:c.shot)];
     const tags=[c.emotion,c.action!=='none'&&c.action,c.stance,...cam,Math.abs((c.pause??.45)-.45)>.01&&`pause=${c.pause}`].filter(Boolean);
     out.push(`${name(c.speaker).toUpperCase()} [${tags.join(', ')}]: ${c.text}`);
@@ -365,6 +433,8 @@ How the best reels are written:
 - End on a callback: the last line twists something said earlier, or admits the truth. No moral, no explanation.
 - Use the screen to tell the joke: before a line, put the exact thing on the monitor that the line reacts to (a terminal command, a chat message, a code diff, an email). Two to four screens per reel.
 - 10 to 16 lines, about 110 spoken words. Feelings change often (that is what makes faces and voices move); give most lines an action.
+- Write how people really talk, so the voices act instead of read: trail off with "..." ("I know... I missed being asked."), start a hesitant answer with "..." ("...Yeah."), break a thought into short sentences, and give some replies only one or two words.
+- Sounds and delivery go inside the line in square brackets where they happen: [sigh], [laugh], [chuckle], [gasp], [groan], [sniff], [clear throat], [whispering], [sarcastic]. One per line at most, on a third of the lines or fewer. They are performed, never shown in captions.
 
 Reply with the script only, in exactly this format:
 # title: <short title>
@@ -379,7 +449,12 @@ NAME [emotion, action]: spoken line
 NAME [emotion, action, sit, pause=0.8]: spoken line
 >> SCREEN tone: KICKER | Title | Subtitle   (optional, before a line: a title card on the monitor; tone is ${TONES.join(', ')})
 >> SCREEN terminal alert: window title | $ git blame auth.js | 3f2a1c  Gary  2:04 AM  "fix later"   (an app that types itself out)
-   Screen types: card (title card), terminal (commands and output), chat (lines like "Kai: are you sure?"), code (a code diff: lines starting + or -), inbox (lines like "Boss — Re: the demo — now"). Up to ${SCREEN_LINES} lines, under 60 characters each; no emoji.
+   Screen types: card (title card), terminal (commands and output), chat (messages from the other person), code (a code diff: lines starting + or -), inbox (lines like "Boss: Re: the demo - now"), browser (a web page or dialog), grid (tiles to pick, like a captcha: first line "Select all squares with | traffic lights").
+   Screens are performed while the line plays, so the viewer watches someone use the computer. Start a row with:
+     "> " typed in (a chat message, a command, a form field)   "[x] " a tile or checkbox the cursor ticks ("[ ] " one left alone)
+     "(Verify)" a button the cursor clicks   "!! " an error popup   "** " a success overlay   "~ " a spinner while it loads
+   Example: >> SCREEN grid info: Verify you are human | Select all squares with | traffic lights | [x] Light | [ ] Sky | [x] Pole | [ ] Road | [ ] Car | [x] Light top | [ ] Tree | [ ] Bus | [ ] Sign | (Verify) | !! Please try again
+   Up to ${SCREEN_LINES} lines, under 60 characters each; no emoji. Show the screen on the line that reacts to it; for a long interaction add the camera tag "screen" to that line.
 
 Characters (# cast lines). Start from a template: ${Object.keys(CAST_TEMPLATES).join(', ')} (creator = low-poly guy in a hoodie, mascot = a block/round/bean creature with a painted face, bot = small desk robot with an LED face, creature = animal person).
 Then any of: height, build, head (0.8 to 1.3); colours as #rrggbb: skin, hair, eyes, top, accent, bottom, shoes, screen; voice=<one of am_puck, am_michael, am_echo, am_fenrir, am_adam, af_heart, af_bella, af_nicole, af_sarah, af_sky, bf_emma, bf_isabella, bm_george, bm_lewis>;
@@ -400,6 +475,7 @@ Movement: enter (walks in from off-stage, arriving as the line starts; they are 
 Camera (optional, default is automatic): ${SHOTS.filter(x=>!['auto','custom'].includes(x)).join(', ')}; add :name to frame someone else; or cam=<degrees around>/<height degrees>/<distance>/<lens mm> with move=${MOVES.filter(x=>x!=='auto').join('|')}
 Voice modulation: # modulation: 0 to 1.6 (1 is normal, 0 keeps the original voice).
 Silent beat: >> BEAT: 1.0 after a dialogue line holds the listener reaction without speaking.
+Time skip: >> CARD: 2 HOURS LATER before a line shows a full-screen card first (under 30 characters).
 Pause: pause=<seconds of silence after the line, 0 to 3>`;
 }
 // A parsed script applied to a project: theme first, then the script's own set/time/camera/look/style/world and cast.
@@ -424,7 +500,9 @@ export function normalizeWorld(raw={}){
   const sky=Array.isArray(w.sky)&&w.sky.length===3&&w.sky.every(color)?w.sky.map(color):null;
   return {foliage:num(w.foliage,0,1.6,1),wind:num(w.wind,0,2.5,1),particles:list(w.particles,WORLD_PARTICLES),sign:w.sign!==false,campfire:w.campfire!==false,
     view:VIEWS.includes(w.view)?w.view:'city',surface:SURFACES.includes(w.surface)?w.surface:'keyboard',lights:w.lights!==false,lightColor:color(w.lightColor)||'#ffc070',monitor:w.monitor!==false,props:list(w.props,DESK_PROPS)??['lamp','mug'],sky,glow:color(w.glow),
-    backdrop:id(w.backdrop),scene:id(w.scene),scale:num(w.scale,.05,50,2),turn:num(w.turn,-180,180,0),panoHeight:num(w.panoHeight,.5,40,4),offsetX:num(w.offsetX,-100,100,0),offsetY:num(w.offsetY,-50,50,0),offsetZ:num(w.offsetZ,-100,100,0)};
+    backdrop:id(w.backdrop),scene:id(w.scene),scale:num(w.scale,.05,50,2),turn:num(w.turn,-180,180,0),panoHeight:num(w.panoHeight,.5,40,4),offsetX:num(w.offsetX,-100,100,0),offsetY:num(w.offsetY,-50,50,0),offsetZ:num(w.offsetZ,-100,100,0),
+    // A glowing neon sign on the wall behind the cast ("on" shows the film's @handle).
+    neon:typeof w.neon==='string'&&!/^(off|none|no)$/i.test(w.neon)?w.neon.replace(/[^\w@#&!?.' -]/g,'').trim().slice(0,24):'',neonColor:color(w.neonColor)||'#ff7a59'};
 }
 export function normalizeLook(raw={}){
   const a={...LOOK_DEFAULTS,...raw};
@@ -482,7 +560,7 @@ export function validateProject(raw){
   p.cues=p.cues.map((c,i)=>{
     if(!Number.isFinite(c.start)||!Number.isFinite(c.end)||c.start<0||c.end>p.duration||c.end-c.start<.3)throw Error(`Line ${i+1}: check the start and end times.`);
     if(!seen.has(c.speaker))throw Error(`Line ${i+1}: "${c.speaker}" is not in the cast.`);
-    const cue={...c,action:c.action??'none',pause:clamp(Number(c.pause??.45),0,3)};
+    const cue={...c,action:c.action??'none',pause:clamp(Number(c.pause??.45),0,3)};if(c.card!=null){if(typeof c.card!=='string')throw Error(`Line ${i+1}: a card is text.`);cue.card=c.card.slice(0,40);if(!cue.card)delete cue.card;}
     if(LEGACY_CUE_SHOT[cue.shot]){const [shot,who]=LEGACY_CUE_SHOT[cue.shot];cue.shot=shot;cue.subject=who;}
     if(!SHOTS.includes(cue.shot))throw Error(`Line ${i+1}: unknown camera "${cue.shot}".`);
     if(cue.subject!==undefined&&!seen.has(cue.subject)&&!(cue.subject==='all'&&cue.shot==='custom'))delete cue.subject;

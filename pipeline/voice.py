@@ -5,14 +5,14 @@
 
 Engines (project.voiceEngine):
   kokoro      fast, clean delivery; emotion steers pace.
-  chatterbox  expressive: each character's Kokoro voice is cloned by Chatterbox,
-              which acts each line with an emotion-driven intensity.
+  chatterbox  expressive: each character's Kokoro voice is cloned by Chatterbox Turbo, which performs each line
+              from delivery tags chosen by its feeling ([sigh], [fear], [gasp] ...) or written in the line.
 
 layout=flow  lays lines end to end with each line's `pause` and fits the duration.
 layout=keep  keeps authored start times (pushes a line later only if one overruns).
 Prints `PROGRESS done/total message` lines for the studio server.
 """
-import argparse, base64, hashlib, io, json, os, pathlib, subprocess, sys
+import argparse, base64, difflib, hashlib, io, json, os, pathlib, re, subprocess, sys
 import numpy as np
 import soundfile as sf
 
@@ -30,8 +30,91 @@ CB_STYLE = {'neutral': (.5, .5), 'happy': (.8, .35), 'sad': (.6, .45), 'angry': 
 # Same table as browser-voice.js ACTING.
 ACTING = {'neutral': (0, 0, 0, 1), 'happy': (1.5, .8, 0, 1), 'sad': (-1.6, -1.2, 0, .74), 'angry': (-.6, -.8, 0, 1),
           'surprised': (2.6, 1.6, 0, 1), 'worried': (.9, .4, .35, .86), 'curious': (1, 1.4, 0, .92), 'idea': (1.8, .9, 0, 1)}
-REFERENCE_TEXT = ('Hello there. This is my natural speaking voice, calm and clear. '
-                  'I can sound curious, happy or a little worried, depending on the story we tell today.')
+# Expressive delivery: a feeling becomes Turbo's delivery tag; short surprises gasp, and every other sad line sighs.
+DELIVERY = {'happy': '[happy]', 'angry': '[angry]', 'surprised': '[surprised]', 'worried': '[fear]'}
+# Turn-taking for lines without an authored pause: how long the next speaker takes to answer, by the feeling they
+# answer with. Same table as TURN_GAP in dist/timeline.js.
+TURN_GAP = {'surprised': .14, 'angry': .16, 'idea': .24, 'happy': .3, 'curious': .3, 'neutral': .34, 'worried': .42, 'sad': .6}
+CARD_TIME = 1.8  # CARD_TIME in dist/timeline.js
+TAG = re.compile(r'\s*\[[a-zA-Z ]{2,14}\]\s*')
+
+def spoken(text):
+    """The line without delivery tags (same as spoken() in dist/timeline.js)."""
+    return re.sub(r'\s+([.,!?;:])', r'\1', re.sub(r'\s+', ' ', TAG.sub(' ', text))).strip()
+
+def direction(text, emotion):
+    """What Turbo reads: the writer's own tags win; otherwise the feeling picks one."""
+    if TAG.search(text):
+        return text.strip()
+    words, odd = len(spoken(text).split()), hashlib.sha256(text.encode()).digest()[0] % 2
+    lead = DELIVERY.get(emotion, '')
+    if emotion == 'surprised' and words <= 3:
+        lead = '[gasp]'
+    elif emotion == 'sad' and words >= 3 and odd:
+        lead = '[sigh]'
+    return f'{lead} {text}'.strip()
+
+def turn_gap(cue, nxt):
+    """Silence after a line: its authored pause, or a natural answer time (0.45 is the unauthored default)."""
+    if nxt is not None and nxt.get('card'):
+        return max(.3, cue.get('pause', .45)) + CARD_TIME  # a time card ("2 HOURS LATER") gets its own moment of black
+    pause = cue.get('pause', .45)
+    if abs(pause - .45) > .01 or nxt is None:
+        return pause
+    gap = .3 if nxt['speaker'] == cue['speaker'] else TURN_GAP.get(nxt.get('emotion', 'neutral'), .34)
+    if re.match(r'\s*(\[[a-zA-Z ]+\]\s*)*(\.\.\.|…)', nxt['text']):
+        gap += .35  # "...Yeah." hesitates before it starts
+    if cue['text'].rstrip(' "\'').endswith('?') and nxt['speaker'] != cue['speaker']:
+        gap -= .04  # answers come quicker after a question
+    return round(max(.08, gap), 3)
+
+def align_words(text, heard):
+    """The script's words timed by the recognised ones (Whisper): matching words take their times, re-worded
+    spans share theirs, and anything unmatched is spread between its neighbours."""
+    script = text.split()
+    norm = lambda w: re.sub(r"[^a-z0-9']", '', w.lower())
+    times = [None] * len(script)
+    ops = difflib.SequenceMatcher(None, [norm(w) for w in script], [norm(h[2]) for h in heard], autojunk=False).get_opcodes()
+    for op, i1, i2, j1, j2 in ops:
+        if op == 'equal':
+            for k in range(i2 - i1):
+                times[i1 + k] = heard[j1 + k][:2]
+        elif op == 'replace':
+            a, b = heard[j1][0], heard[j2 - 1][1]
+            for k in range(i2 - i1):
+                times[i1 + k] = [a + (b - a) * k / (i2 - i1), a + (b - a) * (k + 1) / (i2 - i1)]
+    i = 0
+    while i < len(times):
+        if times[i] is None:
+            j = i
+            while j < len(times) and times[j] is None:
+                j += 1
+            a = times[i - 1][1] if i else (heard[0][0] if heard else 0)
+            b = times[j][0] if j < len(times) else max(a + .25 * (j - i), heard[-1][1] if heard else 0)
+            for k in range(i, j):
+                times[k] = [a + (b - a) * (k - i) / (j - i), a + (b - a) * (k - i + 1) / (j - i)]
+            i = j
+        i += 1
+    return [[s, e, w] for (s, e), w in zip(times, script)]
+
+def emphasis(audio, words):
+    """Adds each word's stress (0–1): loudness and length per syllable against the rest of its line."""
+    if len(words) < 2:
+        return [[s, e, w, .5] for s, e, w, *_ in words]
+    loud, slow = [], []
+    for s, e, w, *_ in words:
+        seg = audio[int(s * RATE):max(int(s * RATE) + 1, int(e * RATE))]
+        loud.append(10 * np.log10(np.mean(seg ** 2) + 1e-9))
+        slow.append((e - s) / max(1, len(re.findall(r'[aeiouy]+', w.lower()))))
+    z = lambda v: (np.array(v) - np.mean(v)) / (np.std(v) + 1e-6)
+    score = z(loud) + .6 * z(slow)
+    lo, hi = score.min(), score.max()
+    return [[s, e, w, round(float((x - lo) / (hi - lo + 1e-6)), 2)] for (s, e, w, *_), x in zip(words, score)]
+
+# The expressive engine copies the reference's manner as well as its voice: a lively, conversational read (a
+# question, an exclamation, a hesitation) gives livelier takes than a calm one.
+REFERENCE_TEXT = ("Oh, hey! You actually came back. Honestly? I wasn't sure you would... "
+                  "But I'm really glad you did. So, what are we making today? Something fun, I hope!")
 
 def progress(done, total, msg):
     print(f'PROGRESS {done}/{total} {msg}', flush=True)
@@ -165,7 +248,7 @@ def visemes(wav_path, text):
     return [[round(c['start'], 3), c['value']] for c in json.loads(out)['mouthCues']]
 
 def reference_clip(voice):
-    path = CACHE / f'ref_{voice}.wav'
+    path = CACHE / f'ref2_{voice}.wav'
     if not path.exists():
         audio, _, _ = kokoro(REFERENCE_TEXT, voice, 1.0)
         sf.write(path, audio, RATE, subtype='PCM_16')
@@ -176,7 +259,7 @@ def chatterbox_batch(jobs):
     if not jobs:
         return
     if not CB_PYTHON.exists():
-        sys.exit('Chatterbox is not installed. Use the Kokoro engine, or install it with: python3 -m venv .venv-cb && .venv-cb/bin/pip install chatterbox-tts')
+        sys.exit('Chatterbox is not installed. Use the Kokoro engine, or install it with: python3 -m venv .venv-cb && .venv-cb/bin/pip install chatterbox-tts faster-whisper')
     spec = CACHE / 'cb_jobs.json'
     spec.write_text(json.dumps(jobs))
     # Plain HTTPS downloads: the Xet transfer backend can stall on slow connections.
@@ -193,18 +276,22 @@ def finish_take(key, raw_path, text, words, mouth=None, energy=1.0):
     if sr != RATE:
         idx = np.arange(0, len(audio), sr / RATE)
         audio = np.interp(idx, np.arange(len(audio)), audio).astype(np.float32)
+    heard = pathlib.Path(str(raw_path) + '.words.json')
+    if words is None and heard.exists() and json.loads(heard.read_text()):
+        words = align_words(text, json.loads(heard.read_text()))
     if words is None:
         audio, _, _ = trim(audio, [])
         words = estimate_words(audio, text)
     else:
         audio, words, mouth = trim(audio, words, mouth=mouth or ())
+    words = emphasis(audio, words)
     peak = np.abs(audio).max()
     if peak > 0:
         audio = audio * (0.89 * energy / peak)
     wav_path = CACHE / f'{key}.wav'
     sf.write(wav_path, audio, RATE, subtype='PCM_16')
     cues = mouth_cues(mouth, len(audio) / RATE) if mouth else visemes(wav_path, text)
-    meta = {'words': [[round(s, 3), round(e, 3), w] for s, e, w in words], 'visemes': cues}
+    meta = {'words': [[round(s, 3), round(e, 3), w, x] for s, e, w, x in words], 'visemes': cues}
     (CACHE / f'{key}.json').write_text(json.dumps(meta))
 
 class VoiceError(Exception):
@@ -226,20 +313,21 @@ def voice_project(project, layout='flow', lead=None, tail=1.6, report=progress):
         style = KOKORO_SPEED.get(emotion, 1.0) if engine == 'kokoro' else CB_STYLE.get(emotion, (.5, .5))
         # Chatterbox acts the line itself, so it only takes the feeling's loudness.
         acted = [emotion, round(strength, 2)] if strength else []
-        key = hashlib.sha256(json.dumps([engine, cue['text'], voice, style, 3 if engine == 'kokoro' else 2, *acted]).encode()).hexdigest()[:16]
+        text = spoken(cue['text'])
+        key = hashlib.sha256(json.dumps([engine, cue['text'], voice, style, 4 if engine == 'kokoro' else 3, *acted]).encode()).hexdigest()[:16]
         keys.append(key)
         if (CACHE / f'{key}.json').exists():
             report(i + 1, total, f"cached {cue['speaker']}: {cue['text']}")
             continue
         if engine == 'kokoro':
-            audio, words, mouth, energy = act(cue['text'], voice, style, emotion, strength)
+            audio, words, mouth, energy = act(text, voice, style, emotion, strength)
             raw = CACHE / f'{key}.raw.wav'
             sf.write(raw, audio, RATE, subtype='PCM_16')
-            finish_take(key, raw, cue['text'], words, mouth, energy)
+            finish_take(key, raw, text, words, mouth, energy)
             report(i + 1, total, f"voiced {cue['speaker']}: {cue['text']}")
         else:
             report(i, total, f"preparing {cue['speaker']} voice")
-            cb_jobs.append({'key': key, 'text': cue['text'], 'ref': str(reference_clip(voice)), 'exaggeration': style[0],
+            cb_jobs.append({'key': key, 'text': text, 'direction': direction(cue['text'], emotion), 'ref': str(reference_clip(voice)), 'exaggeration': style[0],
                             'cfg': style[1], 'out': str(CACHE / f'{key}.raw.wav'), 'label': f"{cue['speaker']}: {cue['text']}", 'index': i, 'total': total,
                             'energy': acting(emotion, cue['text'], strength)[1]})
     chatterbox_batch(cb_jobs)
@@ -251,6 +339,8 @@ def voice_project(project, layout='flow', lead=None, tail=1.6, report=progress):
     lead = lead if lead is not None else (1.4 if project.get('intro', True) else 0.4)
     if cues[0].get('action') == 'enter':
         lead = max(lead, 1.6)
+    if cues[0].get('card'):
+        lead += CARD_TIME
     cursor = lead if layout == 'flow' else 0.0
     takes = []
     for cue, key in zip(cues, keys):
@@ -261,7 +351,8 @@ def voice_project(project, layout='flow', lead=None, tail=1.6, report=progress):
         start = cursor if layout == 'flow' else max(cue['start'], cursor)
         cue['start'], cue['end'] = round(start, 3), round(start + length + 0.1, 3)
         cue['visemes'], cue['words'] = meta['visemes'], meta['words']
-        cursor = cue['end'] + (cue.get('pause', 0.45) if layout == 'flow' else 0.3)
+        nxt = cues[cues.index(cue) + 1] if cue is not cues[-1] else None
+        cursor = cue['end'] + (turn_gap(cue, nxt) if layout == 'flow' else 0.3)
     end = cues[-1]['end']
     if layout == 'flow':
         project['duration'] = max(5, int(np.ceil(end + tail + (1.1 if project.get('endTitle') else 0))))

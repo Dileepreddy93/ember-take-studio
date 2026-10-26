@@ -25,7 +25,7 @@ audio, rate = sf.read(io.BytesIO(base64.b64decode(voiced['voiceData'].split(',',
 assert rate == 24000 and len(audio) > rate and abs(audio).max() > .05
 for cue in voiced['cues']:
     assert cue['words'] and cue['visemes']
-    assert all(0 <= start <= end for start, end, _ in cue['words'])
+    assert all(0 <= start <= end for start, end, *_ in cue['words'])
 project['cast'][0]['voice'] = 'invalid'
 assert client.post('/api/voice', json={'project': project}).status_code == 400
 assert client.post('/api/voice', content='invalid JSON').status_code == 400

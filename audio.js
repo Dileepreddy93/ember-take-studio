@@ -1,4 +1,6 @@
 // Original mathematical score and sound effects, plus voice/music mixing. No recorded assets or model calls.
+import {screenSounds} from './screen-apps.js';
+import {screenSpan} from './dist/timeline.js';
 export const RATE=48000;
 // voice and music are AudioBuffer-like objects ({sampleRate,length,numberOfChannels,getChannelData}).
 export async function makeSound(project,voice=null,music=null){
@@ -34,6 +36,13 @@ export async function makeSound(project,voice=null,music=null){
       else if(s?.tone==='success')for(let j=0;j<4;j++)note(at+j*.14,2,[523.25,659.25,783.99,1046.5][j],.07,(j-1.5)*.25,'bell','sfx');
       else if(s?.tone==='calm'){note(at,1.2,587.33,.05,-.2,'bell','sfx');note(at+.16,1.4,880,.045,.2,'bell','sfx');}
       else if(s?.tone==='info')note(at,.25,1174.66,.04,0,'bell','sfx');
+      // Performed screens: a key per typed character, a mouse click per press, a buzz or chime for popups.
+      if(s?.kind&&s.kind!=='card'){const span=screenSpan(project,cue);
+        for(const e of screenSounds(s,span)){const at2=cue.start+e.t;
+          if(e.type==='key'){const r=Math.sin(e.n*91.7+cue.start)*43758.5;note(at2,.05,1,.035+.02*(r-Math.floor(r)),.25,'noise','sfx');}
+          else if(e.type==='click'){note(at2,.04,1,.06,.2,'noise','sfx');note(at2+.06,.035,1,.04,.2,'noise','sfx');}
+          else if(e.type==='error'){note(at2,.3,233.08,.06,0,'bell','sfx');note(at2+.15,.4,220,.06,0,'bell','sfx');}
+          else if(e.type==='success')for(let j=0;j<3;j++)note(at2+j*.1,1.2,[659.25,783.99,1046.5][j],.05,(j-1)*.3,'bell','sfx');}}
       if(cue.action==='press')note(cue.start+Math.min((cue.end-cue.start)*.45,1.2)+.12,.08,1,.1,.3,'noise','sfx');
       if(cue.action==='jump')note(cue.start-.1,.5,180,.07,0,'sweep','sfx');
       if(cue.action==='cheer')for(let j=0;j<3;j++)note(cue.start+j*.09,.6,1318.5*(1+j*.26),.03,(j-1)*.4,'bell','sfx');

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {DEFAULT_PROJECT,clone,validateProject,poseAt,mouthAt,faceAt,actionAt,screenAt,planShots,parseScript,toScript,newCastMember,beatAt,stanceAt,VISEMES,FACES,MAX_CAST,applyScript,sitAt,sitsInFilm,THEMES,applyTheme,castLine,LOOK_DEFAULTS} from '../dist/timeline.js';
+import {blinkAt,glanceAt,DEFAULT_PROJECT,clone,validateProject,poseAt,mouthAt,faceAt,actionAt,screenAt,planShots,parseScript,toScript,newCastMember,beatAt,stanceAt,VISEMES,FACES,MAX_CAST,applyScript,sitAt,sitsInFilm,THEMES,applyTheme,castLine,LOOK_DEFAULTS} from '../dist/timeline.js';
 import {makeSound,RATE} from '../audio.js';
 
 test('character looks survive validation and reject unsupported styles',()=>{
@@ -104,6 +104,15 @@ test('each character keeps the feeling of their own last line',()=>{
  const p=validateProject(clone(DEFAULT_PROJECT));
  assert.equal(faceAt(p,9,'Ren').emotion,'surprised');assert.equal(faceAt(p,9,'Mica').emotion,'curious');
  assert.ok(Math.abs(faceAt(p,9,'Mica').smile-FACES.curious.smile)<1e-9);
+});
+test('listeners react to the line they hear, blink unevenly and glance away to think',()=>{
+ const p=validateProject({...clone(DEFAULT_PROJECT),cues:[{id:'a',speaker:'Ren',text:'You deleted it?',emotion:'surprised',action:'none',shot:'auto',start:1,end:2.4},{id:'b',speaker:'Mica',text:'...Maybe. I was trying to help, honestly.',emotion:'worried',action:'none',shot:'auto',start:3,end:6}]});
+ assert.ok(faceAt(p,1.1,'Mica').eye<FACES.surprised.eye);assert.equal(faceAt(p,1.9,'Mica').emotion,'surprised');assert.ok(faceAt(p,1.9,'Mica').eye>1.1);
+ assert.ok(faceAt(p,5,'Ren').brow>.05,'a worried line worries the listener');assert.equal(faceAt(p,5,'Mica').emotion,'worried');
+ const closes=[];for(let t=0;t<p.duration;t+=1/30)if(blinkAt(p,t,'Ren',.3)<.2&&(!closes.length||t-closes.at(-1)>.3))closes.push(t);
+ assert.ok(closes.length>=3);const gaps=closes.slice(1).map((t,i)=>t-closes[i]);assert.ok(Math.max(...gaps)-Math.min(...gaps)>.5,'blinks are not on a clock');
+ assert.ok(closes.some(t=>Math.abs(t-.88)<.1),'blinks just before speaking');assert.equal(blinkAt(p,4.5,'Ren',.3),blinkAt(p,4.5,'Ren',.3));
+ assert.ok(Math.abs(glanceAt(p,3.4,'Mica',.3).yaw)>.2&&Math.abs(glanceAt(p,5.8,'Mica',.3).yaw)<.08,'looks away, then back to finish the line');
 });
 test('actions ease in and out around their line',()=>{
  const p=validateProject(clone(DEFAULT_PROJECT));

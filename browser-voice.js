@@ -1,4 +1,5 @@
 import {acting,modulate} from './voice-modulation.js';
+import {spoken,turnGap,CARD_TIME} from './dist/timeline.js';
 // Voices and lip sync on the viewer's own device: the same Kokoro voices as the desktop engine, run in the browser by
 // HeadTTS (WebGPU, or WASM where WebGPU is missing), laid out exactly like pipeline/voice.py so the online studio
 // produces the same voiced project: trimmed takes, word timings, mouth shapes and one WAV voice track.
@@ -75,12 +76,12 @@ export async function voiceProject(project,layout,onProgress,synth=null){
   const p=JSON.parse(JSON.stringify(project)),voices=Object.fromEntries(p.cast.map(c=>[c.id,c.voice])),cues=[...p.cues].sort((x,y)=>x.start-y.start),got=[];
   for(const [i,cue] of cues.entries()){
     const name=p.cast.find(c=>c.id===cue.speaker)?.name||cue.speaker;onProgress?.(.3+.65*i/cues.length,`Voicing ${name}: ${cue.text}`);
-    got.push(await take(cue.text,voices[cue.speaker]||'af_bella',SPEED[cue.emotion]||1,synth,cue.emotion,p.voiceModulation??1));
+    got.push(await take(spoken(cue.text),voices[cue.speaker]||'af_bella',SPEED[cue.emotion]||1,synth,cue.emotion,p.voiceModulation??1));
   }
-  let cursor=layout==='flow'?Math.max(p.intro!==false?1.4:.4,cues[0]?.action==='enter'?1.6:0):0;
+  let cursor=layout==='flow'?Math.max(p.intro!==false?1.4:.4,cues[0]?.action==='enter'?1.6:0)+(cues[0]?.card?CARD_TIME:0):0;
   cues.forEach((cue,i)=>{const len=got[i].audio.length/RATE,start=layout==='flow'?cursor:Math.max(cue.start,cursor);
     cue.start=Math.round(start*1000)/1000;cue.end=Math.round((start+len+.1)*1000)/1000;cue.visemes=got[i].visemes;cue.words=got[i].words;
-    cursor=cue.end+(layout==='flow'?(cue.pause??.45):.3);});
+    cursor=cue.end+(layout==='flow'?turnGap(cue,cues[i+1]):.3);});
   const end=cues.at(-1).end;
   if(layout==='flow'){p.duration=Math.max(5,Math.ceil(end+1.6+(p.endTitle?1.1:0)));if(p.duration>90)throw Error(`The voiced film runs ${p.duration}s; the limit is 90s. Shorten the script.`);}
   else if(end>p.duration)throw Error(`Voiced lines run to ${end.toFixed(1)}s, past the ${p.duration}s film. Shorten text or choose “Fit the film to the voices”.`);

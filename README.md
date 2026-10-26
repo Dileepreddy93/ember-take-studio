@@ -42,7 +42,8 @@ The site learns the engine's URL from the repository variable `EMBER_API`.
 1. **Script** (header button): paste or write the episode. *Copy AI writer prompt* gives Claude,
    ChatGPT or Gemini everything they need to write one in the right format.
 2. **Voice tab → Generate voices & lip sync.** *Fast* (Kokoro) takes seconds a line; *Expressive*
-   (Chatterbox) acts out each line's feeling and takes longer.
+   (Chatterbox Turbo) performs each line: it sighs, gasps, laughs and changes its delivery with the feeling, and
+   its real word timings drive captions, lip sync and gestures. It takes longer (about 3–4× the film's length on a CPU).
 3. **Scene tab:** adjust any line's feeling, action, camera or monitor screen. Change text or feeling,
    then generate voices again (unchanged lines are cached).
 4. **Cast / Film tabs:** names, colours, voices, your @handle, captions, end card, music.
@@ -129,6 +130,7 @@ KAI [sad, stand]: It didn't ask me one question.
 | `# theme:` | night-city, rainy-window, snow-cabin, ocean-sunset, mountain-morning, space-station, campfire-forest, sunny-meadow, winter-woods |
 | `# set:` / `# time:` | desk (a room by a big window), forest, meadow, snow · morning, golden, night |
 | `# world:` (room) | `view=` city, mountains, ocean, forest, space, none · `surface=` keyboard, table · `lights=on/off` · `lightColor=#hex` · `monitor=on/off` · `props=` lamp,mug,plant,books,clock · `sky=#top,#mid,#horizon` · `glow=#hex` (city window lights) |
+| `# world:` (neon sign) | `neon=on` (your @handle) or `neon=Open_late` (`_` for spaces), `neonColor=#ff7a59` |
 | `# world:` (any set) | `particles=` motes, dust, fireflies, pollen (inside) and snow, rain, leaves (outside the window); outdoors also `foliage=`, `wind=`, `campfire=` |
 | `# cast:` | `NAME = template` (creator, human, robot, creature, bot, mascot), then `key=value` look settings: height, build, head, colours (skin, hair, eyes, top, accent, bottom, shoes, screen), hairStyle, topStyle, glasses, hat, species, shape (block, round, bean), `prop=` phone, mug, book, tablet, coffee, `voice=`; plus bare words such as `sit`, `phone`, `hoodie`. With no template, an existing character of that name keeps their look |
 
@@ -139,7 +141,10 @@ KAI [sad, stand]: It didn't ask me one question.
 | Pose | `sit` or `stand`: the speaker sits down or stands up from this line on (a seat appears behind anyone who sits; built-in characters and imported humanoids with mapped leg bones) |
 | Camera (default auto) | wide, two, single, cu, ots, screen (`cu:mica` frames Mica); `cam=yaw/pitch/dist/lens` for a 360° angle |
 | Pause | `pause=0.8` seconds of silence after the line |
+| Delivery (in the line) | `[sigh]`, `[laugh]`, `[chuckle]`, `[gasp]`, `[groan]`, `[sniff]`, `[clear throat]`, `[whispering]`, `[sarcastic]` where they happen: `KAI [sad]: [sigh] It didn't know me.` Performed by Expressive voices, never shown in captions. Without a pause, answers come as fast as the feeling: a surprise jumps in, sadness takes a moment, `...` hesitates |
 | Monitor | `>> SCREEN alert|calm|info|success [+progress]: KICKER | Title | Subtitle` before a line |
+| App screen | `>> SCREEN grid info: site.com | Select all squares with | traffic lights | [x] Light | [ ] Sky | (Verify) | !! Please try again`: kinds terminal, chat, code, inbox, browser, grid. Rows are performed while the line plays: `> text` typed, `[x]` ticked by the cursor, `(Button)` clicked, `!!` error popup, `**` success, `~` loading. Typing and clicks are heard |
+| Time card | `>> CARD: 2 HOURS LATER` before a line |
 
 **Copy AI writer prompt** (in the Script dialog) gives Claude, ChatGPT or Gemini this whole language, so
 any idea comes back as a complete concept with its own characters and world.
@@ -178,7 +183,7 @@ The Voice tab's **Voice modulation** slider (0–1.6) shapes pitch, question ris
 
 Scripts can carry `# modulation: 1.0`. Use `>> BEAT: 1.0` after dialogue for a silent reaction, or the existing `pause=1.0` tag. `enter`, `exit` and `hop` actions walk a character onto their mark, walk them off after speaking, or make a double hop. The first entrance reserves enough lead time to appear on screen.
 
-App screens accept a window title followed by up to eight rows, separated by `|`:
+App screens accept a window title followed by up to twelve rows, separated by `|`:
 
 ```text
 >> SCREEN terminal info: release.log | $ npm test | PASS

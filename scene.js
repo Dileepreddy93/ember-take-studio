@@ -9,7 +9,7 @@ import {BokehPass} from 'three/examples/jsm/postprocessing/BokehPass.js';
 import {GTAOPass} from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import {ShaderPass} from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import {OutputPass} from 'three/examples/jsm/postprocessing/OutputPass.js';
-import {poseAt,planShots,stanceAt,presenceAt,sitAt,sitsInFilm,mouthAt,faceAt,actionAt,screenAt,wordAt,beatAt,clamp,smooth,lerp} from './dist/timeline.js';
+import {poseAt,planShots,stanceAt,presenceAt,sitAt,sitsInFilm,mouthAt,faceAt,actionAt,screenAt,wordAt,beatAt,blinkAt,glanceAt,spoken,CARD_TIME,clamp,smooth,lerp} from './dist/timeline.js';
 import {buildCharacter,animateCharacter,drawFace,headWorld,disposeCharacter} from './characters.js';
 import {SoftwareRenderer} from './software-renderer.js';
 import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -92,7 +92,7 @@ export class FilmScene{
   // The desk set from world settings: a keyboard or a plain table top, an optional monitor, and chosen props.
   makeSet(w,T){
     const MONITOR=w.surface==='laptop'?{x:0,y:3.7,z:-4.3,yaw:0,s:1.1}:DESK_MONITOR;
-    const wood=material(T.desk,{roughness:.82,map:woodGrain()}),edge=material('#292e31',{metalness:.35}),key=material('#b9b3a1',{roughness:.7}),keyDark=material('#58686b'),top=-.275;
+    const wood=material(T.desk,{roughness:.82,map:woodGrain()}),edge=material('#292e31',{metalness:.35}),key=material(T.keys||'#b9b3a1',{roughness:.7}),keyDark=material('#58686b'),top=-.275;
     box(this.set,90,.55,58,wood,0,-.55,4,.18);
     if(w.surface==='laptop'){box(this.set,14.2,.23,10.2,material('#747b83',{metalness:.65,roughness:.32}),0,-.1,.6,.22);box(this.set,4.2,.02,1.9,material('#626971',{metalness:.45}),0,.027,4.15,.1);}
     if(w.surface==='keyboard'||w.surface==='laptop'){box(this.set,13,.25,6.1,edge,0,-.12,-.1,.18);
@@ -121,6 +121,23 @@ export class FilmScene{
     if(has('books')){const bk=prop(-4.4,-3.2),cols=['#7a3b3b','#33506e','#c9a66b','#3f5f4a'];for(let i=0;i<4;i++){const b2=box(bk,2.2-i*.12,.32,1.5-i*.06,material(cols[i],{roughness:.85}),i*.05,.16+i*.32,0,.03);b2.rotation.y=(i%2?.08:-.06);}}
     if(has('clock')){const ck=prop(8.6,-2.6);cyl(ck,.75,.75,.3,material('#d9cbb2'),0,.75,0,28).rotation.x=PI/2;const face=new THREE.Mesh(new THREE.CircleGeometry(.62,28),new THREE.MeshBasicMaterial({map:label('',10,'#000','#f6efe2')}));face.position.set(0,.75,.16);ck.add(face);
       for(const [len,ang] of [[.4,.9],[.52,-1.1]]){const h=box(ck,.05,len,.02,material('#2a2420'),0,0,0,.01);h.position.set(Math.sin(ang)*len/2,.75+Math.cos(ang)*len/2,.18);h.rotation.z=-ang;}box(ck,.9,.12,.4,material('#b8a688'),0,.06,0,.03);}
+  }
+  // A neon sign hanging in front of the window, above the cast: glass tubes that bloom, a coloured spill of light and
+  // the odd flicker. Returns its animation (or null when the world has none).
+  neonSign(g,w){
+    const text=w.neon==='on'?(this.project.handle||'@embertake'):w.neon;if(!text)return null;
+    const c=document.createElement('canvas');c.width=1024;c.height=256;const x=c.getContext('2d'),col=w.neonColor||'#ff7a59';
+    let size=150;x.font=`bold ${size}px "Brush Script MT","Segoe Script",cursive`;while(x.measureText(text).width>900&&size>40){size-=6;x.font=`bold ${size}px "Brush Script MT","Segoe Script",cursive`;}
+    x.fillStyle='rgba(18,10,14,.82)';x.beginPath();x.roundRect(12,24,1000,208,36);x.fill();x.textAlign='center';x.textBaseline='middle';x.lineJoin='round';
+    for(const [blur,width,alpha] of [[40,14,.9],[18,9,1]]){x.shadowColor=col;x.shadowBlur=blur;x.strokeStyle=col;x.globalAlpha=alpha;x.lineWidth=width;x.strokeText(text,512,132);}
+    x.shadowBlur=0;x.globalAlpha=1;x.strokeStyle='#fff3ea';x.lineWidth=3.5;x.strokeText(text,512,132);
+    const tex=new THREE.CanvasTexture(c);tex.colorSpace=THREE.SRGBColorSpace;const m=new THREE.MeshBasicMaterial({map:tex,transparent:true,toneMapped:false,depthWrite:false});
+    // Centred over the cast just above head height: close-ups catch it peeking out behind the hair, wider shots show it whole.
+    const L=LAYOUT[Math.min(4,Math.max(1,this.project.cast.length))],cx=L.reduce((a,[x0])=>a+x0,0)/L.length;
+    const sign=new THREE.Mesh(new THREE.PlaneGeometry(3.4,.85),m);sign.position.set(cx-.4,5.05,-4.6);g.add(sign);
+    for(const sx of [-1.3,1.3]){const wire=new THREE.Mesh(new THREE.CylinderGeometry(.008,.008,8,4),new THREE.MeshBasicMaterial({color:'#1a1410'}));wire.position.set(sx,4.4,-.01);sign.add(wire);}// hung on two wires
+    const spill=new THREE.PointLight(col,5,9,2);spill.position.set(cx-.4,5,-3.9);g.add(spill);
+    return t=>{const n=Math.floor(t*9),r=Math.sin(n*12.9898)*43758.5453,flick=(r-Math.floor(r))>.985?.35:1,k=(1.35+.08*Math.sin(t*3.1))*flick;m.color.setScalar(k);spill.intensity=7*flick;sign.rotation.z=Math.sin(t*.5)*.012;};
   }
   // Frees replaced sets and characters after the next frame has rendered (see buildWorld).
   later(f){(this.trash||=[]).push(f);}
@@ -163,11 +180,11 @@ export class FilmScene{
     const key=new THREE.DirectionalLight(T.key[0],T.key[1]);key.position.set(time==='night'?5:-4,8,5);key.userData.base=T.key[1];key.castShadow=true;key.shadow.mapSize.set(2048,2048);Object.assign(key.shadow.camera,{left:-9,right:9,top:10,bottom:-7,near:.5,far:30});key.shadow.normalBias=.035;key.shadow.bias=-.00025;key.shadow.radius=3;g.add(key);
     // Warm rim from behind-left, as in the reference: it separates the characters from the dark set.
     const rim=new THREE.DirectionalLight(T.rim[0],T.rim[1]);rim.position.set(5,5,-4);g.add(rim);const rim2=new THREE.DirectionalLight(T.rim2[0],T.rim2[1]);rim2.position.set(-6,4,-5);g.add(rim2);const fill=new THREE.DirectionalLight(T.fill[0],T.fill[1]);fill.position.set(4,3,5);g.add(fill);
-    this.set=group(g);this.makeSet(w,T);this.set.updateMatrixWorld(true);const mon=(x,y,z)=>this.monitor.localToWorld(new THREE.Vector3(x,y,z));
+    this.set=group(g);this.makeSet(w,T);this.set.updateMatrixWorld(true);const neon=this.neonSign(g,w);const mon=(x,y,z)=>this.monitor.localToWorld(new THREE.Vector3(x,y,z));
     const screenLight=new THREE.PointLight('#8bcecf',w.monitor?T.screen:0,12,2);screenLight.position.copy(mon(0,.26,2.4));g.add(screenLight);this.set.traverse(o=>o.userData.staticLayer=true);this.renderKey.userData.staticLayer=false;this.renderKeyLabel.userData.staticLayer=false;
     return {group:g,key,screenLight,screen:{canvas:this.screenCanvas,ctx:this.screenCtx,texture:this.screenTexture,style:'monitor'},renderKey:this.renderKey,renderKeyLabel:this.renderKeyLabel,keyRest:this.keyRest,
       screenPoint:mon(0,0,.32),keyPoint:new THREE.Vector3(2.65,this.keyRest[1],1.85),screenPose:w.monitor?{pos:mon(.38,.77,14.9),at:mon(0,-.19,0),fov:44,ap:.0018}:null,groundY:w.surface==='table'?-.275:.26,
-      background:new THREE.Color(T.bg),fog:new THREE.FogExp2(T.fog[0],T.fog[1]),environment:null,environmentIntensity:1,exposure:T.exposure,animate:air.animate,
+      background:new THREE.Color(T.bg),fog:new THREE.FogExp2(T.fog[0],T.fog[1]),environment:null,environmentIntensity:1,exposure:T.exposure,animate:t=>{air.animate(t);neon?.(t);},
       dispose:()=>g.traverse(o=>{o.geometry?.dispose();if(o.material)for(const m of [].concat(o.material)){if(!m.map?.userData.cached)m.map?.dispose();m.dispose();}})};
   }
   // Rebuilds only the characters whose look changed, then lays the cast out along the keyboard.
@@ -244,8 +261,10 @@ export class FilmScene{
     // Lead room: shift the frame so the subject sits off-centre, away from the side their partner is on.
     const lead=(center,ay,W,toward,amt)=>{const right=new THREE.Vector3(Math.cos(ay),0,-Math.sin(ay)),sgn=Math.sign(new THREE.Vector3(toward.x-S.x,0,toward.z-S.z).dot(right))||0;return center.addScaledVector(right,amt*sgn*W);};
     const single=(size)=>{
-      if(rig.kind==='mascot'&&['ecu','cu','single'].includes(size))size='fs';
-      const hr=(S.crown-S.chin)/1.9,T={ecu:[S.eye+.55*hr,S.chin-.12*hr,.12,.58,85,8,0,.005],cu:[S.crown,S.chin-.55*hr,.13,.58,75,12,-2,.0045],single:[S.crown,S.shoulder-.42*(S.shoulder-S.waist),.14,.6,60,18,1,.003],ms:[S.crown,S.waist-.15*S.scale,.15,.64,50,15,5,.0022],fs:[S.crown,S.feet,.16,.8,40,10,7,.0012]}[size];
+            const hr=(S.crown-S.chin)/1.9,T={ecu:[S.eye+.55*hr,S.chin-.12*hr,.1,.6,85,8,0,.006],cu:[S.crown,S.chin-.3*hr,.09,.6,75,12,-3,.0058],single:[S.crown,S.shoulder-.42*(S.shoulder-S.waist),.14,.6,60,18,-1,.0042],ms:[S.crown,S.waist-.15*S.scale,.15,.64,50,15,1,.003],fs:[S.crown,S.feet,.16,.8,40,10,3,.0016]}[size];
+      // A mascot is one block: close sizes keep its whole body and turn three-quarters, so two faces of the
+      // block (and its volume) show, from slightly below like a hero shot.
+      if(rig.kind==='mascot'){const mt={ecu:[S.crown,S.waist,.16,.66,70,30,-4,.006],cu:[S.crown,S.waist,.16,.66,70,30,-4,.006],single:[S.crown,S.feet,.17,.74,55,28,-2,.0042]}[size];if(mt)T.splice(0,8,...mt);}
       const [top,bottom,ft,fb,lens,yaw0,pitch,ap]=T,fr=fit(top,bottom,ft,fb,lens,rig.kind==='mascot'?S.width*1.45:0),yaw=yaw0*(seg.subject===seg.other?0:sideOf(S,O));
       const ay=facing+yaw*DEG,center=lead(head(S,fr.yC),ay,fr.H*aspect,O,seg.subject===seg.other?0:.07);
       return {center,yaw,pitch,dist:fr.dist,lens,ap,facing,move};
@@ -257,7 +276,7 @@ export class FilmScene{
       case 'wide':{const top=Math.max(...all.map(m=>m.crown)),bottom=Math.min(...all.map(m=>m.feet)),fr=fit(top,bottom,.2,.8,35,maxX-minX+.6);
         return {center:new THREE.Vector3((minX+maxX)/2,fr.yC,all.reduce((a,m)=>a+m.z,0)/all.length),yaw:12,pitch:9,dist:fr.dist,lens:35,ap:.0007,facing:0,move};}
       case 'ots':{
-        if(seg.subject===seg.other||rig.kind==='mascot')return single('single');
+        if(seg.subject===seg.other||rig.kind==='mascot'||this.rigOf(seg.other).kind==='mascot')return single('single');// a block is too big to be a foreground shoulder
         // Camera behind the partner's outer shoulder: their head softly fills a frame edge, the speaker is framed chest-up.
         const axis=new THREE.Vector3(O.x-S.x,0,O.z-S.z).normalize(),front=new THREE.Vector3(axis.z,0,-axis.x);if(front.z<0)front.negate();
         // Far enough behind the partner, with a small sideways offset, that their head lands on the frame edge.
@@ -276,7 +295,8 @@ export class FilmScene{
   describeShot(seg){const f=this.shotFrame(seg);return {yaw:Math.round(f.yaw),pitch:Math.round(f.pitch),dist:Math.round(f.dist*10)/10,lens:Math.round(f.lens),move:'auto'};}
   // Pose of one shot segment at time t (centre, angles, lens, move, emotion punch-in and handheld drift).
   shotPose(seg,t,start,end,cue){
-    if(seg.shot==='screen'){const sp=this.world.screenPose;if(!sp)return this.shotPose({...seg,shot:'two'},t,start,end,cue);return {pos:sp.pos.clone(),at:sp.at.clone(),fov:sp.fov,ap:sp.ap};}
+    if(seg.shot==='screen'){const sp=this.world.screenPose;if(!sp)return this.shotPose({...seg,shot:'two'},t,start,end,cue);const u=smooth((t-start)/Math.max(1,end-start));// a slow push toward the monitor
+      return {pos:sp.pos.clone().lerp(sp.at,.07*u),at:sp.at.clone(),fov:sp.fov,ap:sp.ap};}
     const f=this.shotFrame(seg),u=smooth((t-start)/Math.max(1,end-start)),move=f.move==='auto'?(seg.shot==='wide'?'orbit':'push'):f.move;
     let yaw=f.yaw,pitch=f.pitch,dist=f.dist,shakeAmp=0;
     if(move==='push')dist*=1-.08*u;else if(move==='pull')dist*=1+.1*u;else if(move==='orbit')yaw+=(seg.shot==='wide'?6:22)*(u-.5);else if(move==='rise')pitch+=14*u;else if(move==='handheld')shakeAmp=.035;
@@ -306,7 +326,7 @@ export class FilmScene{
       pose.pos.lerp(new THREE.Vector3(11,10,30),reveal);pose.at.lerp(new THREE.Vector3(0,2,-.5),reveal);pose.ap=lerp(pose.ap,.0004,reveal);
     }
     this.camera.position.copy(pose.pos);this.target=pose.at;this.camera.lookAt(pose.at);this.camera.fov=pose.fov;this.camera.updateProjectionMatrix();
-    if(this.bokeh){const u2=this.bokeh.uniforms;u2.focus.value=pose.pos.distanceTo(pose.at);u2.aperture.value=p.dof?pose.ap:0;u2.maxblur.value=p.dof?clamp(pose.ap*3.4,.009,.015):0;}
+    if(this.bokeh){const u2=this.bokeh.uniforms;u2.focus.value=pose.pos.distanceTo(pose.at);u2.aperture.value=p.dof?pose.ap:0;u2.maxblur.value=p.dof?clamp(pose.ap*4,.009,.022):0;}
     const look=FILM_LOOKS[p.filmLook]||FILM_LOOKS.studio;if(this.grade){const g=this.grade.uniforms;for(const k of ['contrast','sat','fade','mono','aberr','scan'])g[k].value=look[k]??FILM_LOOKS.studio[k];g.lift.value.set(...(look.lift||[0,0,0]));g.gain.value.set(...(look.gain||[1,1,1]));g.grain.value=look.grain??.032;}
     if(this.bloom)this.bloom.strength=look.bloom??.24;
   }
@@ -317,8 +337,14 @@ export class FilmScene{
     const cam=this.camera.position.clone();
     if(!this.faceFill){this.faceFill=new THREE.PointLight('#ffe0bb',12,22,2);this.scene.add(this.faceFill);}
     const fillTarget=this.heads[st.speaker||st.subject]||new THREE.Vector3(0,3,0);
-    this.faceFill.intensity=this.rigOf(st.speaker||st.subject).kind==='mascot'?2.5:9;
-    this.faceFill.position.copy(fillTarget).lerp(cam,.35);this.faceFill.position.y+=.65;let press=0;const cueIndex=cue?p.cues.indexOf(cue):0;
+    this.faceFill.intensity=this.rigOf(st.speaker||st.subject).kind==='mascot'?2.5:5.5;
+    this.faceFill.position.copy(fillTarget).lerp(cam,.35);this.faceFill.position.y+=this.rigOf(st.speaker||st.subject).kind==='mascot'?.65:.1;// level with a face, so the chin isn't left in shadow
+    // Warm kicker on the side of the subject the camera can see: one bright side and a softer front give the
+    // light-and-shadow modelling that makes a simple block or face read as solid.
+    if(!this.kicker){this.kicker=new THREE.PointLight('#ffb36b',0,16,2);this.scene.add(this.kicker);}
+    {const sr=this.rigOf(st.speaker||st.subject),ry=sr.root.rotation.y,side=new THREE.Vector3(Math.cos(ry),0,-Math.sin(ry)),fwd=new THREE.Vector3(Math.sin(ry),0,Math.cos(ry)),sc=sr.root.scale.y||1;
+      if(side.dot(cam.clone().sub(fillTarget))<0)side.negate();
+      this.kicker.position.copy(fillTarget).addScaledVector(side,3*sc).addScaledVector(fwd,.4*sc);this.kicker.position.y+=1.1*sc;this.kicker.intensity=this.focus?0:sr.kind==='mascot'?16:13;}let press=0;const cueIndex=cue?p.cues.indexOf(cue):0;
     for(const rig of this.rigs){
       const id=rig.member.id,focused=this.focus===id;rig.root.visible=!this.focus||focused;if(rig.shadow)rig.shadow.visible=rig.root.visible;rig.root.rotation.y=rig.baseYaw+(focused?(performance.now()/1000*.6)%(PI*2):0);
       const presence=this.focus?{off:0,moving:0,dir:0}:presenceAt(p,t,id),side=rig.baseX<0?-1:1;
@@ -336,10 +362,12 @@ export class FilmScene{
       // Actors cheat toward the lens: the further away the partner, the more the face stays open to camera.
       // Limit how far the face turns from the lens: speakers ≤30° (hook and closing line ≤12°), listeners ≤55°.
       const me=this.heads[id],toward=speaking?partner:cue?this.heads[st.speaker]:partner,limit=(speaking?(cueIndex===0||cueIndex===p.cues.length-1?12:30):55)*DEG;
-      const aCam=Math.atan2(cam.x-me.x,cam.z-me.z),aTo=Math.atan2(toward.x-me.x,toward.z-me.z),dA=Math.atan2(Math.sin(aTo-aCam),Math.cos(aTo-aCam)),aim=aCam+clamp(dA,-limit,limit),reach=Math.max(2,toward.distanceTo(me));
-      const look=new THREE.Vector3(me.x+Math.sin(aim)*reach,lerp(toward.y,cam.y,.3),me.z+Math.cos(aim)*reach);
+      const aCam=Math.atan2(cam.x-me.x,cam.z-me.z),aTo=Math.atan2(toward.x-me.x,toward.z-me.z),dA=Math.atan2(Math.sin(aTo-aCam),Math.cos(aTo-aCam)),glance=this.focus?{yaw:0,pitch:0}:glanceAt(p,t,id,rig.seed),aim=aCam+clamp(dA,-limit,limit)+glance.yaw,reach=Math.max(2,toward.distanceTo(me));
+      const look=new THREE.Vector3(me.x+Math.sin(aim)*reach,lerp(toward.y,cam.y,.3)-glance.pitch*reach,me.z+Math.cos(aim)*reach);
+      // Brows flash up on stressed words (an angry speaker knits them instead).
+      if(speaking&&beat){face.raise+=beat*.05;if(face.emotion==='angry')face.brow-=beat*.12;}
       const perf={t,talk,beat,nod,walk:presence.moving,walkDir:presence.dir,sit:rig.sit,face,action:act,baseY:rig.baseY,cueIndex,look,partner,screen:this.world.screenPoint,key:this.world.keyPoint,camera:cam},res=rig.imported?animateImported(rig,perf):animateCharacter(rig,perf);press=Math.max(press,res.press);if(rig.seatMesh)rig.seatMesh.position.y=-(rig.root.position.y-rig.baseY)/rig.root.scale.y;
-      const u=(t*.31+rig.seed*.173)%1,blink=(u<.03?.1:1)*(Math.sin(t*1.3+rig.seed)>.997?.1:1),gaze=speaking?0:clamp((this.heads[st.speaker]?.x??cam.x)-rig.root.position.x,-1,1)*.8;
+      const blink=blinkAt(p,t,id,rig.seed),gaze=clamp((speaking?0:clamp((this.heads[st.speaker]?.x??cam.x)-rig.root.position.x,-1,1)*.8)+glance.yaw*1.6,-1,1);
       const mouth=mouthAt(p,t,id)||{open:talk*(.45+.4*Math.abs(Math.sin(t*11+rig.seed))),wide:1,round:0,teeth:talk>.3?1:0,tongue:0};
       if(rig.imported)drawImportedFace(rig,mouth,face,blink);else drawFace(rig,mouth,face,blink,gaze,t);
     }
@@ -365,9 +393,9 @@ export class FilmScene{
   }
   drawScreen(ss,t){
     const s=ss.screen,tone=TONES[s.tone]||TONES.calm,pct=ss.progress==null?null:Math.round(ss.progress*100),flash=clamp(1-(t-ss.since)/.35,0,1);
-    const typed=s.kind&&s.kind!=='card'?Math.min(1000,Math.max(0,Math.floor((t-ss.since)*32))):0;
+    const typed=s.kind&&s.kind!=='card'?Math.min(3000,Math.max(0,Math.floor((t-(ss.start??ss.since))*30))):0;// apps are performed: redraw every frame
     const key=`${ss.index}|${typed}|${pct}|${Math.round(flash*8)}|${this.project.title}`;if(key===this.lastScreenKey)return;this.lastScreenKey=key;this.screenRevision++;
-    if(s.kind&&s.kind!=='card'){drawAppScreen(this.screenCtx,s,Math.max(0,t-ss.since),this.project.title);this.screenTexture.needsUpdate=true;return;}
+    if(s.kind&&s.kind!=='card'){drawAppScreen(this.screenCtx,s,Math.max(0,t-(ss.start??ss.since)),this.project.title,ss.span);/* before its line, an app shows its starting state */this.screenTexture.needsUpdate=true;return;}
     if(this.world.screen.style==='sign')return this.drawSign(s,tone,pct,flash,t,ss);
     const x=this.screenCtx,w=1600,h=900;x.fillStyle='#0c1824';x.fillRect(0,0,w,h);x.fillStyle='#142737';x.fillRect(0,0,w,75);x.fillStyle='#4f6877';for(let i=0;i<3;i++){x.beginPath();x.arc(38+i*29,37,7,0,PI*2);x.fill();}x.fillStyle='#88a0ab';x.font='22px monospace';x.textAlign='left';x.fillText('STUDIO / '+this.project.title.toUpperCase().slice(0,48),160,45);x.strokeStyle='#203849';x.lineWidth=1;for(let i=0;i<12;i++){x.beginPath();x.moveTo(0,150+i*65);x.lineTo(w,150+i*65);x.stroke();}for(let i=0;i<20;i++){x.beginPath();x.moveTo(i*90,75);x.lineTo(i*90,h);x.stroke();}
     const jitter=flash>0?Math.sin(t*90)*14*flash:0;x.save();x.translate(jitter,0);
@@ -385,11 +413,15 @@ export class FilmScene{
     if(p.handle){x.save();x.globalAlpha=.78;x.fillStyle='#f1ece2';x.font=`700 ${15*s}px Arial`;x.textAlign='left';x.shadowColor='#000a';x.shadowBlur=6*s;x.fillText(p.handle,w*.06,h*.085);x.restore();}
     if(p.intro&&st.t<2.6){const a=smooth(st.t/.5)*smooth((2.6-st.t)/.6);x.save();x.globalAlpha=a;const band=x.createLinearGradient(0,0,0,h*.36);band.addColorStop(0,'#05080bf2');band.addColorStop(.7,'#05080bcc');band.addColorStop(1,'#05080b00');x.fillStyle=band;x.fillRect(0,0,w,h*.36);x.fillStyle='#e6c9aa';x.textAlign='center';x.font=`500 ${11*s}px Arial`;x.letterSpacing=`${2*s}px`;x.fillText((p.handle||'AN ORIGINAL').toUpperCase()+' PRESENTS',w/2,h*.13);x.letterSpacing='0px';x.font=`${35*s}px Georgia`;x.fillStyle='#f4e9d6';x.shadowColor='#000c';x.shadowBlur=10*s;const words=p.title.split(' '),lines=[];let row='';for(const word of words){if(x.measureText(row+' '+word).width>w*.8&&row){lines.push(row);row=word;}else row+=(row?' ':'')+word;}lines.push(row);lines.slice(0,3).forEach((l,i)=>x.fillText(l,w/2,h*(.18+i*.045)));x.restore();}
     if(p.captions&&st.cue)(p.captionStyle==='box'?this.boxCaption:this.boldCaption).call(this,st);
+    // Time card ("2 HOURS LATER"): black with bold gold type, in the silence before its line.
+    const card=p.cues.find(c=>c.card&&st.t>=c.start-CARD_TIME-.05&&st.t<c.start-.05);
+    if(card){const a=smooth((st.t-(card.start-CARD_TIME-.05))/.3)*smooth((card.start-.05-st.t)/.3);x.save();x.globalAlpha=a;x.fillStyle='#05070b';x.fillRect(0,0,w,h);x.textAlign='center';x.fillStyle='#d9a441';
+      let size=34*s;x.font=`800 ${size}px Arial`;while(x.measureText(card.card.toUpperCase()).width>w*.82&&size>14*s){size-=2*s;x.font=`800 ${size}px Arial`;}x.letterSpacing=`${1.5*s}px`;x.fillText(card.card.toUpperCase(),w/2,h*.5);x.restore();}
     if(p.endTitle&&st.final>0){const a=st.final;x.save();x.globalAlpha=a;x.fillStyle='#122125';x.fillRect(0,0,w,h);x.textAlign='center';x.fillStyle='#d6b088';x.font=`${12*s}px Arial`;x.fillText(this.castNames().toUpperCase(),w/2,h*.39);x.fillStyle='#ece5d5';x.font=`${38*s}px Georgia`;x.fillText(p.endTitle,w/2,h*.47);x.font=`${13*s}px Arial`;x.fillStyle='#9aafaa';x.fillText(p.endSub,w/2,h*.525);if(p.handle){x.fillStyle='#d6b088';x.font=`600 ${14*s}px Arial`;x.fillText(p.handle,w/2,h*.6);}x.restore();}
   }
   wrap(words,max){const x=this.out,lines=[];let row=[];for(const [i,word] of words.entries()){const test=[...row.map(r=>r.word),word].join(' ');if(x.measureText(test).width>max&&row.length){lines.push(row);row=[];}row.push({word,i});}if(row.length)lines.push(row);return lines;}
   boldCaption(st){
-    const x=this.out,w=this.w,h=this.h,s=w/540,c=st.cue,words=c.text.split(/\s+/),cur=c.words?.length?Math.min(words.length-1,Math.round(wordAt(c,st.t)*words.length/c.words.length)):-1;
+    const x=this.out,w=this.w,h=this.h,s=w/540,c=st.cue,words=spoken(c.text).split(/\s+/),cur=c.words?.length?Math.min(words.length-1,Math.round(wordAt(c,st.t)*words.length/c.words.length)):-1;
     const pop=smooth((st.t-c.start)/.14),fade=smooth((c.end-st.t)/.12),accent=ACCENTS[this.castIndex(c.speaker)%4];
     x.save();x.globalAlpha=fade;x.font=`800 ${29*s}px "Arial Black", Arial, sans-serif`;x.textAlign='left';x.textBaseline='middle';x.lineJoin='round';
     const lines=this.wrap(words,w*.84),lh=37*s,y0=h*.63-(lines.length-1)*lh/2,space=x.measureText(' ').width;
@@ -398,6 +430,6 @@ export class FilmScene{
       for(const r of row){const ww=x.measureText(r.word).width,on=r.i===cur;x.shadowColor='rgba(0,0,0,.7)';x.shadowBlur=10*s;x.lineWidth=5*s;x.strokeStyle='rgba(8,8,10,.92)';x.strokeText(r.word,px,py);x.shadowBlur=0;x.fillStyle=on?accent:'#fbf7ef';x.fillText(r.word,px,py);px+=ww+space;}});
     x.restore();
   }
-  boxCaption(st){const x=this.out,w=this.w,h=this.h,s=w/540,c=st.cue,max=w*.79;x.font=`600 ${20*s}px Arial`;const lines=this.wrap(c.text.split(' '),max).map(r=>r.map(q=>q.word).join(' '));const bh=(43+lines.length*27)*s,y=h*.83-bh*.5;x.fillStyle='rgba(10,18,23,.87)';x.beginPath();x.roundRect(w*.075,y,w*.85,bh,9*s);x.fill();x.textAlign='center';x.font=`bold ${10*s}px Arial`;x.fillStyle=NAME_COLORS[this.castIndex(c.speaker)%4];x.fillText(this.nameOf(c.speaker).toUpperCase(),w/2,y+22*s);x.font=`600 ${20*s}px Arial`;x.fillStyle='#eee9dc';lines.forEach((l,i)=>x.fillText(l,w/2,y+(48+i*27)*s));}
+  boxCaption(st){const x=this.out,w=this.w,h=this.h,s=w/540,c=st.cue,max=w*.79;x.font=`600 ${20*s}px Arial`;const lines=this.wrap(spoken(c.text).split(' '),max).map(r=>r.map(q=>q.word).join(' '));const bh=(43+lines.length*27)*s,y=h*.83-bh*.5;x.fillStyle='rgba(10,18,23,.87)';x.beginPath();x.roundRect(w*.075,y,w*.85,bh,9*s);x.fill();x.textAlign='center';x.font=`bold ${10*s}px Arial`;x.fillStyle=NAME_COLORS[this.castIndex(c.speaker)%4];x.fillText(this.nameOf(c.speaker).toUpperCase(),w/2,y+22*s);x.font=`600 ${20*s}px Arial`;x.fillStyle='#eee9dc';lines.forEach((l,i)=>x.fillText(l,w/2,y+(48+i*27)*s));}
   dispose(){this.controls.dispose();for(const f of this.trash.splice(0))f();this.world?.dispose?.();for(const r of this.rigs){if(r.imported)disposeImported(r);else if(!r.loading)disposeCharacter(r);}this.scene.traverse(o=>{o.geometry?.dispose();if(o.material){for(const m of Array.isArray(o.material)?o.material:[o.material])m.dispose();}});this.composer.dispose();this.renderer.dispose();}
 }

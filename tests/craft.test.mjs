@@ -36,3 +36,32 @@ test('browser modulation lays out remapped words and mouth cues inside each take
  const out=await voiceProject(p,'flow',null,async(text,voice,speed)=>{const n=Math.round(24000/speed),pcm=Float32Array.from({length:n},(_,i)=>Math.sin(i/12)*.4),ms=n/24;return [{data:{audio:{getChannelData:()=>pcm},words:['Ready?'],wtimes:[0],wdurations:[ms],visemes:['aa','sil'],vtimes:[0,ms-20],vdurations:[ms-20,20]}}];});
  const c=out.cues[0],length=c.end-c.start;assert.ok(length>.8&&length<1.3);assert.ok(c.words.every(([a,b])=>0<=a&&a<=b&&b<=length));assert.ok(c.visemes.every(([t])=>t>=0&&t<=length));validateProject(out);
 });
+test('delivery tags stay out of captions, answers are timed by feeling, measured stress drives beats',async()=>{
+ const {spoken,turnGap,beatAt}=await import('../dist/timeline.js');
+ assert.equal(spoken("[sigh] It didn't know me [laugh]. Fine."),"It didn't know me. Fine.");
+ const q={speaker:'A',text:'Was it good?',pause:.45};
+ assert.ok(turnGap(q,{speaker:'B',text:'No!',emotion:'surprised'})<.2);assert.ok(turnGap(q,{speaker:'B',text:'...It was fast.',emotion:'sad'})>.8);
+ assert.equal(turnGap({...q,pause:1.2},{speaker:'B',text:'No!',emotion:'surprised'}),1.2);assert.equal(turnGap(q,undefined),.45);
+ const cue={start:0,end:2,text:'it never did',words:[[0,.3,'it',0],[.4,1.2,'never',1],[1.3,1.5,'did',.2]]};
+ assert.ok(beatAt(cue,.5)>beatAt(cue,1.4)*2,'the stressed word beats hardest');
+});
+test('time cards, neon signs and performed screens survive the script round trip',async()=>{
+ const {parseScript,applyScript,toScript,validateProject,turnGap,CARD_TIME,planShots}=await import('../dist/timeline.js');
+ const {screenPlan,screenSounds,parseRow}=await import('../screen-apps.js');
+ const p=clone(DEFAULT_PROJECT),text='# world: neon=Ship_it! neonColor=#ff3366\n>> SCREEN grid info: Verify | Select all squares with | traffic lights | [x] Light | [ ] Sky | [x] Pole | (Verify) | !! Please try again\nRen [worried, screen]: Easy. Traffic lights.\n>> CARD: 2 hours later\nMica [sad]: Still going?';
+ const v=validateProject({...applyScript(p,parseScript(text,p)),duration:30}),again=applyScript(p,parseScript(toScript(v),p));
+ assert.equal(v.world.neon,'Ship it!');assert.equal(again.world.neon,'Ship it!');assert.equal(again.world.neonColor,'#ff3366');
+ assert.equal(v.cues[1].card,'2 hours later');assert.equal(again.cues[1].card,'2 hours later');assert.ok(turnGap(v.cues[0],v.cues[1])>=CARD_TIME);
+ assert.deepEqual(again.cues[0].screen.lines,v.cues[0].screen.lines);assert.equal(v.cues[0].screen.kind,'grid');
+ assert.equal(parseRow('[x] Light').on,true);assert.equal(parseRow('(Verify)').type,'button');assert.equal(parseRow('> hello').type,'type');assert.equal(parseRow('!! no').type,'error');
+ const plan=screenPlan(v.cues[0].screen,4),acts=plan.beats.filter(b=>b.dur>0);
+ assert.ok(acts.every((b,i)=>!i||b.start>=acts[i-1].start+acts[i-1].dur-1e-9),'actions happen one after another');assert.ok(plan.end<=4);
+ const snd=screenSounds(v.cues[0].screen,4);assert.equal(snd.filter(e=>e.type==='click').length,3);assert.equal(snd.filter(e=>e.type==='error').length,1);
+ assert.equal(planShots(v)[0].shot,'screen');
+});
+test('a screen acts within its own line (and lines held on it), starting fresh before its line',async()=>{
+ const {screenAt,screenSpan,parseScript,applyScript,validateProject}=await import('../dist/timeline.js');
+ const p=clone(DEFAULT_PROJECT),v=validateProject({...applyScript(p,parseScript('>> SCREEN browser info: site | [x] I am human | (Go) | !! Nope\nRen [neutral, screen]: Easy.\nRen [curious, screen]: Right?\nRen [angry]: WHAT?\nMica [sad]: Oh no.',p)),duration:30});
+ const [a,b,c]=v.cues;assert.ok(Math.abs(screenSpan(v,a)-(b.end+(b.pause??.45)*.5-a.start))<1e-9,'held lines extend it');assert.ok(a.start+screenSpan(v,a)<c.end,'but not into the reaction line');
+ assert.equal(screenAt(v,0).start,a.start);
+});

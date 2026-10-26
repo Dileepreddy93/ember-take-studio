@@ -1,0 +1,19 @@
+# title: Prove You're Human
+# handle: @embertake
+# theme: night-city
+# style: lowpoly
+# camera: cinematic
+# world: view=none lights=on props=lamp,mug particles=dust neon=on neonColor=#ff7a59
+# cast: SAM = creator prop=none hairStyle=shaggy top=#2b3245 bottom=#1d2230 voice=am_puck
+>> SCREEN grid info: verify.example.com | Select all squares with | traffic lights | [ ] Sky | [x] Light | [ ] Road | [ ] Tree | [x] Pole | [ ] Car | [ ] Bus | [x] Light top | [ ] Sign | (Verify)
+SAM [neutral, screen]: Traffic lights. Easy.
+SAM [curious, screen]: ...Does the tip count? It counts.
+>> SCREEN grid alert: verify.example.com | Select all squares with | traffic lights | [ ] Sky | [ ] Light | [ ] Road | [ ] Tree | [ ] Pole | [ ] Car | [ ] Bus | [ ] Light top | [ ] Sign | !! Please try again
+SAM [angry, handsup]: It's PART of the traffic light!
+>> SCREEN browser info: verify.example.com | Type the characters you see | > L1xK7 | (Verify) | ** Step 2 complete
+SAM [worried, screen]: Is that an L... or a one? Okay. Verify.
+SAM [happy, nod, pause=0.8]: Yes. One more.
+>> CARD: 2 hours later
+>> SCREEN browser alert: verify.example.com | Final check | [x] I am not a robot | (Continue) | !! Suspicious activity detected
+SAM [sad, screen]: Last one. This time it works.
+SAM [angry, handsup]: I've been human my WHOLE life!

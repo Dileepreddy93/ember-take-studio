@@ -44,7 +44,7 @@ function fillLine(){
   if(c){selected=c.id;$('selected-label').textContent=`LINE ${String(project.cues.indexOf(c)+1).padStart(2,'0')} · ${nameOf(c.speaker).toUpperCase()}`;for(const k of ['speaker','start','end','emotion','action','shot','pause'])$(k).value=c[k];$('stance').value=c.stance||'';$('dialogue').value=c.text;
     options($('subject'),[['',`Speaker (${nameOf(c.speaker)})`],...project.cast.map(m=>[m.id,m.name]),...(c.shot==='custom'?[['all','Whole cast']]:[])]);$('subject').value=c.subject&&c.subject!==c.speaker?c.subject:'';
     $('custom-cam').hidden=c.shot!=='custom';$('customize-cam').hidden=c.shot==='custom';if(c.cam)showCam(c.cam);
-    const s=c.screen;$('screen-kind').value=s?.kind||'card';$('screen-lines').value=(s?.lines||[]).join('\n');$('screen-lines-field').hidden=!s?.kind||s.kind==='card';$('screen-on').checked=Boolean(s);$('screen-box').open=Boolean(s);$('screen-tone').value=s?.tone||'calm';$('screen-kicker').value=s?.kicker||'';$('screen-title').value=s?.title||'';$('screen-sub').value=s?.sub||'';$('screen-progress').checked=Boolean(s?.progress);}
+    $('card').value=c.card||'';const s=c.screen;$('screen-kind').value=s?.kind||'card';$('screen-lines').value=(s?.lines||[]).join('\n');$('screen-lines-field').hidden=!s?.kind||s.kind==='card';$('screen-on').checked=Boolean(s);$('screen-box').open=Boolean(s);$('screen-tone').value=s?.tone||'calm';$('screen-kicker').value=s?.kicker||'';$('screen-title').value=s?.title||'';$('screen-sub').value=s?.sub||'';$('screen-progress').checked=Boolean(s?.progress);}
   else{$('dialogue').value='';$('selected-label').textContent='ADD A LINE TO BEGIN';}
   for(const k of ['apply-line','delete-line','duplicate-line'])$(k).disabled=!c;
   updateScreenFields();
@@ -132,7 +132,7 @@ $('studio-render').onclick=async()=>{
 
 $('play').onclick=play;$('back').onclick=()=>{stop();time=0;render();};$('scrub').oninput=()=>{audioGeneration++;stop();time=Number($('scrub').value);render();};
 $('title').onchange=()=>{try{commit({...project,title:$('title').value},{keepAudio:true})}catch(e){toast(e.message)}};
-function readScreen(){if(!$('screen-on').checked)return undefined;return {...($('screen-kind').value!=='card'?{kind:$('screen-kind').value,lines:$('screen-lines').value.split('\n').slice(0,8)}:{}),tone:$('screen-tone').value,kicker:$('screen-kicker').value,title:$('screen-title').value,sub:$('screen-sub').value,progress:$('screen-kind').value==='card'&&$('screen-progress').checked};}
+function readScreen(){if(!$('screen-on').checked)return undefined;return {...($('screen-kind').value!=='card'?{kind:$('screen-kind').value,lines:$('screen-lines').value.split('\n').slice(0,12)}:{}),tone:$('screen-tone').value,kicker:$('screen-kicker').value,title:$('screen-title').value,sub:$('screen-sub').value,progress:$('screen-kind').value==='card'&&$('screen-progress').checked};}
 function updateScreenFields(){const card=$('screen-kind').value==='card';$('screen-lines-field').hidden=card;for(const el of document.querySelectorAll('.screen-card-field'))el.hidden=!card;$('screen-title-label').firstChild.textContent=card?'Big title':'Window title';}
 $('screen-kind').onchange=updateScreenFields;
 $('voice-modulation').oninput=()=>{$('voice-modulation-value').textContent=Number($('voice-modulation').value).toFixed(1);};
@@ -141,8 +141,8 @@ $('screen-on').onchange=()=>{$('screen-box').open=$('screen-on').checked;};
 function lineDraft(source){
   const c={...source},text=$('dialogue').value.trim(),speaker=$('speaker').value;
   if(text!==c.text||speaker!==c.speaker||$('emotion').value!==c.emotion){delete c.visemes;delete c.words;}
-  Object.assign(c,{text,speaker,start:Number($('start').value),end:Number($('end').value),emotion:$('emotion').value,action:$('action').value,shot:$('shot').value,pause:Number($('pause').value),screen:readScreen(),subject:$('subject').value||undefined,stance:$('stance').value||undefined});
-  if(!c.stance)delete c.stance;if(!c.screen)delete c.screen;if(!c.subject)delete c.subject;if(c.shot==='custom')c.cam=camValues();else delete c.cam;return c;
+  Object.assign(c,{text,speaker,start:Number($('start').value),end:Number($('end').value),emotion:$('emotion').value,action:$('action').value,shot:$('shot').value,pause:Number($('pause').value),screen:readScreen(),card:$('card').value.trim()||undefined,subject:$('subject').value||undefined,stance:$('stance').value||undefined});
+  if(!c.stance)delete c.stance;if(!c.screen)delete c.screen;if(!c.card)delete c.card;if(!c.subject)delete c.subject;if(c.shot==='custom')c.cam=camValues();else delete c.cam;return c;
 }
 $('apply-line').onclick=()=>{try{const p=clone(project),i=p.cues.findIndex(c=>c.id===selected);if(i<0)return;p.cues[i]=lineDraft(p.cues[i]);commit(p,{keepAudio:true});toast(project.voiceData?'Scene updated.':'Scene updated. Generate voices when your script is ready.');}catch(e){toast(e.message)}};
 
@@ -281,7 +281,7 @@ function renderWorld(){
   $('world-cards').replaceChildren(...SETS.map(id=>{const b=document.createElement('button');b.className='world-card'+(p.set===id?' selected':'');b.innerHTML='<b></b><small></small>';b.querySelector('b').textContent=WORLD_INFO[id][0];b.querySelector('small').textContent=WORLD_INFO[id][1];b.onclick=()=>setWorld({top:{set:id}});return b;}));
   $('theme-chips').replaceChildren(...Object.entries(THEMES).map(([id,th])=>{const b=document.createElement('button');b.className='quiet';b.textContent=th.label;b.onclick=()=>{try{commit(applyTheme(project,id),{keepAudio:true});toast(`${th.label}: everything stays editable below.`);}catch(e){toast(e.message)}};return b;}));
   const nature=['forest','meadow','snow'].includes(p.set),desk=p.set==='desk';$('nature-fields').hidden=!nature;$('custom-fields').hidden=p.set!=='custom';$('desk-fields').hidden=!desk;$('effects-fields').hidden=!(nature||desk);
-  if(desk){const T=DESK_TIMES[p.timeOfDay],sky=w.sky||T.sky;$('world-view').value=w.view;$('world-surface').value=w.surface;$('world-lights').checked=w.lights;$('world-light-color').value=w.lightColor;$('world-monitor').checked=w.monitor;sky.forEach((c,i)=>$('sky-'+i).value=c);$('world-glow').value=w.glow||T.win;
+  if(desk){const T=DESK_TIMES[p.timeOfDay],sky=w.sky||T.sky;$('world-view').value=w.view;$('world-surface').value=w.surface;$('world-lights').checked=w.lights;$('world-light-color').value=w.lightColor;$('world-monitor').checked=w.monitor;sky.forEach((c,i)=>$('sky-'+i).value=c);$('world-glow').value=w.glow||T.win;$('world-neon').value=w.neon||'';$('world-neon-color').value=w.neonColor||'#ff7a59';
     $('prop-grid').replaceChildren(...DESK_PROPS.map(k=>{const l=document.createElement('label'),c=document.createElement('input');c.type='checkbox';c.checked=w.props.includes(k);c.onchange=()=>setWorld({world:{props:DESK_PROPS.filter(x=>x===k?c.checked:w.props.includes(x))}});l.append(c,' '+k[0].toUpperCase()+k.slice(1));return l;}));}$('world-sign').closest('label').hidden=p.set==='desk';
   $('world-time').value=p.timeOfDay;$('world-foliage').value=w.foliage;$('world-wind').value=w.wind;$('foliage-out').value=`${Math.round(w.foliage*100)}%`;$('wind-out').value=`${Math.round(w.wind*100)}%`;$('world-sign').checked=w.sign;$('world-campfire').checked=w.campfire;
   const active=new Set(w.particles??(nature?NATURE[p.set].defaults(p.timeOfDay):desk?deskParticles(p.timeOfDay):[]));
@@ -293,7 +293,7 @@ function renderWorld(){
   $('world-note').textContent=p.set==='custom'&&!w.backdrop&&!w.scene?'Import or choose a 360° background or a 3D scene to build your world.':p.set==='desk'?'Time of day relights the room and the view. Snow, rain and leaves fall outside the window; motes, dust and fireflies drift inside.':'';
 }
 $('world-time').onchange=()=>setWorld({top:{timeOfDay:$('world-time').value}});
-for(const [id,k] of [['world-view','view'],['world-surface','surface'],['world-light-color','lightColor'],['world-glow','glow']])$(id).onchange=()=>setWorld({world:{[k]:$(id).value}});
+for(const [id,k] of [['world-view','view'],['world-surface','surface'],['world-light-color','lightColor'],['world-glow','glow'],['world-neon','neon'],['world-neon-color','neonColor']])$(id).onchange=()=>setWorld({world:{[k]:$(id).value}});
 for(const [id,k] of [['world-lights','lights'],['world-monitor','monitor']])$(id).onchange=()=>setWorld({world:{[k]:$(id).checked}});
 for(let i=0;i<3;i++)$('sky-'+i).onchange=()=>setWorld({world:{sky:[0,1,2].map(j=>$('sky-'+j).value)}});
 $('sky-reset').onclick=()=>setWorld({world:{sky:null,glow:null}});

@@ -190,11 +190,11 @@ function buildHead(rig,a,M,seed){
     else if(Q.smooth){const w=ball(eye,.112,M.white,0,0,0,12,10);w.scale.set(1,1.08,.62);const iris=add(pupil,new THREE.SphereGeometry(.07,40,20),new THREE.MeshPhysicalMaterial({map:irisTexture(a.eyes),roughness:.25,clearcoat:1,clearcoatRoughness:.05}),0,0,.055);iris.scale.set(1,1,.35);
       ball(pupil,.017,M.shine,-.022,.022,.085,8,6);ball(pupil,.008,M.shine,.02,-.018,.085,6,4);}
     else{const w=ball(eye,.112,M.white,0,0,0,12,10);w.scale.set(1,1.12,.55);const iris=ball(pupil,.065,M.eye,0,-.01,.055,12,10);iris.scale.z=.5;ball(pupil,.03,M.dark,0,-.01,.075,8,6).scale.z=.4;ball(pupil,.016,M.shine,-.018,.015,.088,6,4);}
+    // Eyelids (both styles): skin shells that roll down over the eye for blinks, squints, tired and angry looks.
+    {const glossy=a.eyeStyle==='glossy',lid=grp(eye,0,0,glossy?.03:0),shell=add(lid,new THREE.SphereGeometry(glossy?.104:.122,Q.smooth?40:10,Q.smooth?14:4,0,PI*2,0,PI*.5),M.skin);shell.scale.set(glossy?.92:1,glossy?1.2:1.1,glossy?.62:.68);
+      const lash=add(lid,new THREE.TorusGeometry(glossy?.096:.116,Q.smooth?.009:.012,Q.smooth?6:3,Q.smooth?40:10,PI),M.dark);lash.rotation.x=PI/2;lash.rotation.z=PI;lash.scale.set(glossy?.92:1,glossy?.62:.68,1);
+      rig.lids.push(lid);}
     if(Q.smooth){
-      // Eyelids: skin shells that roll down over the eye for blinks and squints.
-      const glossy=a.eyeStyle==='glossy',lid=grp(eye,0,0,glossy?.03:0),shell=add(lid,new THREE.SphereGeometry(glossy?.104:.122,40,14,0,PI*2,0,PI*.5),M.skin);shell.scale.set(glossy?.92:1,glossy?1.2:1.1,glossy?.62:.68);
-      const lash=add(lid,new THREE.TorusGeometry(glossy?.096:.116,.009,6,40,PI),M.dark);lash.rotation.x=PI/2;lash.rotation.z=PI;lash.scale.set(glossy?.92:1,glossy?.62:.68,1);
-      rig.lids.push(lid);
       const brow=grp(head,s*.21,C+.27,.47);tube(brow,[[-.11*s,-.02,-.01],[0,.022,.01],[.11*s,-.008,-.02]],M.hair,.03);rig.brows.push(brow);
       const blush=ball(head,.1,M.blush,s*.33,C-.13,.4,12,8);blush.scale.set(1,.6,.35);blush.castShadow=false;
     }else rig.brows.push(box(head,.22,.06,.06,M.hair,s*.21,C+.27,.45,.025));
@@ -289,7 +289,7 @@ const q2=v=>Math.round(v*100)/100;
 export function drawFace(rig,m,f,blink,gaze,t){
   const face=rig.face;
   if(face.type==='led')return drawLed(face,m,f,blink,gaze,t);
-  for(let i=0;i<2;i++){const side=i===0?1:-1,open=f.eye*blink;if(rig.lids.length)rig.lids[i].rotation.x=lerp(1.5,-.62,clamp(open,0,1.35)/1);else rig.eyes[i].scale.y=Math.max(.08,open);rig.brows[i].rotation.z=side*f.brow;rig.brows[i].position.y=rig.plan.headC+.27+f.raise+(f.asym&&i===0?.05*f.asym:0)-Math.max(0,-f.brow)*.03;rig.pupils[i].position.set(gaze*.022,0,0);}
+  for(let i=0;i<2;i++){const side=i===0?1:-1,open=f.eye*blink;if(rig.lids.length){rig.lids[i].rotation.x=lerp(1.5,-.62,clamp(open,0,1.35)/1);rig.lids[i].rotation.z=side*f.brow*.6;}else rig.eyes[i].scale.y=Math.max(.08,open);rig.brows[i].rotation.z=side*f.brow;rig.brows[i].position.y=rig.plan.headC+.27+f.raise+(f.asym&&i===0?.05*f.asym:0)-Math.max(0,-f.brow)*.03;rig.pupils[i].position.set(gaze*.022,0,0);}
   const open=clamp(m.open+f.open*(1-m.open),0,1),key=[open,m.wide,m.round,m.teeth,m.tongue,f.smile].map(q2).join();if(key===face.last)return;face.last=key;
   const x=face.tex.ctx;x.setTransform(2,0,0,2,0,0);const cx=128,cy=50,w=52*m.wide*(1-m.round*.38)*(1+Math.max(0,f.smile)*.12),hgt=open*85,curve=f.smile*12*(1-open*.5);
   x.clearRect(0,0,256,128);x.lineCap='round';x.lineJoin='round';
